@@ -1,0 +1,16 @@
+<UserControl x:Class="WorkoutTracker.App.Views.WorkoutDetailView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="16">
+        <TextBlock Text="ワークアウト詳細" Style="{StaticResource SectionTitleStyle}"/>
+        <TextBlock Text="{Binding WorkoutDate, StringFormat={}{0:yyyy/MM/dd}}" FontSize="17" Margin="0,8,0,0"/>
+        <TextBlock Text="{Binding Name, TargetNullValue=ワークアウト}" FontWeight="SemiBold"/>
+        <TextBlock Text="{Binding SourceMenuName, StringFormat=メニュー: {0}, TargetNullValue=メニュー: なし}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+        <TextBlock Text="{Binding Note}" TextWrapping="Wrap" Margin="0,6"/>
+        <WrapPanel Margin="0,4,0,10"><TextBlock Text="ボリューム: "/><TextBlock Text="{Binding TotalVolume, StringFormat={}{0:N2} kg}" FontWeight="SemiBold"/><TextBlock Text="   セット数: "/><TextBlock Text="{Binding TotalSets}" FontWeight="SemiBold"/></WrapPanel>
+        <ItemsControl ItemsSource="{Binding Exercises}"><ItemsControl.ItemTemplate><DataTemplate>
+            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,4"><StackPanel>
+                <TextBlock Text="{Binding ExerciseNameSnapshot}" FontWeight="SemiBold"/><TextBlock Text="{Binding PrimaryMuscleNameSnapshot}" Foreground="{DynamicResource TextSecondaryBrush}"/><TextBlock Text="{Binding Note}" TextWrapping="Wrap"/>
+                <ItemsControl ItemsSource="{Binding Sets}"><ItemsControl.ItemTemplate><DataTemplate><Grid Margin="0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="65"/><ColumnDefinition Width="90"/><ColumnDefinition Width="75"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions><TextBlock Text="{Binding SetNumber, StringFormat=セット {0}}"/><TextBlock Grid.Column="1" Text="{Binding WeightKg, StringFormat={}{0:N2} kg}"/><TextBlock Grid.Column="2" Text="{Binding Reps, StringFormat={}{0} 回}"/><TextBlock Grid.Column="3" Text="{Binding Rpe, StringFormat=RPE {0}}"/></Grid></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+            </StackPanel></Border>
+        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </StackPanel></ScrollViewer>
+</UserControl>

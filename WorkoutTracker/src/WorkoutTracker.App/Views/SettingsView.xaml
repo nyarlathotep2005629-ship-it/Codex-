@@ -1,0 +1,42 @@
+<UserControl x:Class="WorkoutTracker.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="{DynamicResource PagePadding}" MaxWidth="920" HorizontalAlignment="Left">
+            <TextBlock Text="設定" Style="{DynamicResource PageTitleStyle}"/>
+            <Border Style="{DynamicResource CardStyle}" Margin="0,0,0,16"><StackPanel>
+                <TextBlock Text="外観" Style="{DynamicResource SectionTitleStyle}"/>
+                <TextBlock Text="テーマ" Style="{DynamicResource CardTitleStyle}" Margin="0,0,0,4"/>
+                <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}" Width="260" HorizontalAlignment="Left" automation:AutomationProperties.Name="テーマ"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource UiDisplayTextConverter}}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                <TextBlock Text="システム設定に合わせると、Windowsのライト / ダーク設定を自動的に反映します。" Style="{DynamicResource CaptionTextStyle}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            </StackPanel></Border>
+
+            <Border Style="{DynamicResource CardStyle}" Margin="0,0,0,16"><StackPanel>
+                <TextBlock Text="データ転送" Style="{DynamicResource SectionTitleStyle}"/>
+                <TextBlock Text=".wtb形式で、完了済みワークアウトとマスターデータを別端末へ手動転送します。進行中のDraftは含まれません。" Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap"/>
+                <WrapPanel Margin="0,14,0,0"><Button Content="データをエクスポート" Command="{Binding ExportTransferCommand}" Style="{DynamicResource PrimaryButtonStyle}"/><Button Content="データをインポート" Command="{Binding ImportTransferCommand}" Style="{DynamicResource SecondaryButtonStyle}" Margin="8,0,0,0"/></WrapPanel>
+            </StackPanel></Border>
+
+            <Border Style="{DynamicResource CardStyle}" Margin="0,0,0,16"><StackPanel>
+                <TextBlock Text="データ保護" Style="{DynamicResource SectionTitleStyle}"/>
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="データベース" Style="{DynamicResource CardTitleStyle}"/><TextBlock Grid.Column="1" Text="{Binding DatabasePath}" TextWrapping="Wrap"/></Grid>
+                <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition/></Grid.ColumnDefinitions><TextBlock Text="バックアップ先" Style="{DynamicResource CardTitleStyle}"/><TextBlock Grid.Column="1" Text="{Binding BackupDirectory}" TextWrapping="Wrap"/></Grid>
+                <WrapPanel Margin="0,18,0,8"><Button Content="バックアップを作成" Command="{Binding BackupCommand}" Style="{DynamicResource PrimaryButtonStyle}"/><Button Content="復元するファイルを選択" Command="{Binding SelectRestoreCommand}" Style="{DynamicResource SecondaryButtonStyle}" Margin="8,0,0,0"/><Button Content="検証済みバックアップで置換" Command="{Binding RestoreCommand}" Style="{DynamicResource DangerButtonStyle}" Margin="8,0,0,0"/></WrapPanel>
+                <TextBlock Text="復元は現在のデータを置き換える操作です。実行前に確認画面と緊急バックアップを使用します。" Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,2,0,12"/>
+                <Border Style="{DynamicResource SubtleCardStyle}" Padding="12"><StackPanel><TextBlock Text="選択した復元ファイル" Style="{DynamicResource CardTitleStyle}"/><TextBlock Text="{Binding SelectedRestorePath, TargetNullValue=未選択}" TextWrapping="Wrap" Margin="0,4,0,0"/><TextBlock Text="{Binding RestoreValidation}" Foreground="{DynamicResource SuccessBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/></StackPanel></Border>
+            </StackPanel></Border>
+
+            <Border Style="{DynamicResource CardStyle}" Margin="0,0,0,16"><StackPanel>
+                <TextBlock Text="処理状況" Style="{DynamicResource SectionTitleStyle}"/>
+                <ProgressBar x:Name="MaintenanceProgressBar" Minimum="0" Maximum="100" Value="{Binding MaintenanceProgress, Mode=OneWay}" Height="8"/>
+                <TextBlock Text="{Binding MaintenanceStatus}" Style="{DynamicResource CaptionTextStyle}" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="{DynamicResource SuccessBrush}" TextWrapping="Wrap" Margin="0,7,0,0"/>
+                <Border Background="{DynamicResource ErrorSurfaceBrush}" BorderBrush="{DynamicResource ErrorBrush}" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,8,0,0"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger><DataTrigger Binding="{Binding ErrorMessage}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock Text="{Binding ErrorMessage}" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"/></Border>
+                <TextBlock Text="{Binding LastBackupPath, StringFormat=バックアップ保存先: {0}}" TextWrapping="Wrap" Style="{DynamicResource CaptionTextStyle}" Margin="0,8,0,0"/>
+                <TextBlock Text="{Binding LastEmergencyBackupPath, StringFormat=緊急バックアップ: {0}}" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" Margin="0,4,0,0"/>
+            </StackPanel></Border>
+            <TextBlock Text="{Binding AppVersion, StringFormat=Workout Tracker PC v{0}}" Style="{DynamicResource CaptionTextStyle}"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
