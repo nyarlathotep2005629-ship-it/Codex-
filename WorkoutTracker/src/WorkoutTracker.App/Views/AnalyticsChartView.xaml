@@ -1,0 +1,12 @@
+<UserControl x:Class="WorkoutTracker.App.Views.AnalyticsChartView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ScottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+        MinHeight="180">
+    <Grid>
+        <ScottPlot:WpfPlot x:Name="PlotControl" />
+        <Border x:Name="EmptyOverlay" Background="{DynamicResource SurfaceBrush}" Visibility="Collapsed">
+            <TextBlock Text="表示できるデータがありません" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,27 @@
+**/bin/
+**/obj/
+.dotnet-home/
+.nuget/
+TestResults/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+*.wtb
+
+# IDE state and runtime diagnostics
+**/.vs/
+*.suo
+*.user
+*.userosscache
+*.log
+*.dmp
+
+# Local work and generated artifacts
+artifacts/
+work/
+.codex-remote-attachments/
+

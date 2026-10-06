@@ -1,0 +1,33 @@
+# .NET build output and test artifacts
+**/bin/
+**/obj/
+**/TestResults/
+**/.vs/
+**/*.user
+**/*.suo
+**/*.userosscache
+
+# Local SDK/tool caches
+**/.dotnet-home/
+**/.nuget/
+**/.config/dotnet-tools.local.json
+
+# Runtime data and local databases
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite3
+**/*.bak
+**/*.backup
+**/*.wtb
+**/Backups/
+**/backups/
+**/Logs/
+**/*.log
+**/*.dmp
+
+# Local work and generated artifacts
+**/artifacts/
+**/work/
+**/.codex-remote-attachments/

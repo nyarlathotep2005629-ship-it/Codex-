@@ -1,0 +1,56 @@
+<UserControl x:Class="WorkoutTracker.App.Views.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:WorkoutTracker.App.Views"
+             MouseDoubleClick="HistoryView_MouseDoubleClick">
+    <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolToVisibility"/></UserControl.Resources>
+    <Grid Margin="{StaticResource PagePadding}">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <TextBlock Text="履歴" Style="{StaticResource PageTitleStyle}"/>
+
+            <Border Grid.Row="1" Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <TextBlock Text="絞り込み" Style="{StaticResource CardTitleStyle}" Margin="0,0,0,10"/>
+                    <WrapPanel Grid.Row="1" VerticalAlignment="Bottom">
+                        <StackPanel Margin="0,0,10,8"><TextBlock Text="期間（開始）" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/><DatePicker SelectedDate="{Binding FromDate}" Width="140"/></StackPanel>
+                        <StackPanel Margin="0,0,10,8"><TextBlock Text="期間（終了）" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/><DatePicker SelectedDate="{Binding ToDateInclusive}" Width="140"/></StackPanel>
+                        <StackPanel Margin="0,0,10,8"><TextBlock Text="種目" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/><ComboBox ItemsSource="{Binding ExerciseOptions}" SelectedItem="{Binding SelectedExercise}" DisplayMemberPath="Name" Width="160"/></StackPanel>
+                        <StackPanel Margin="0,0,10,8"><TextBlock Text="部位" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/><ComboBox ItemsSource="{Binding MuscleOptions}" SelectedItem="{Binding SelectedMuscle}" DisplayMemberPath="Name" Width="145"/></StackPanel>
+                        <StackPanel Margin="0,0,14,8"><TextBlock Text="メニュー" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/><ComboBox ItemsSource="{Binding MenuOptions}" SelectedItem="{Binding SelectedMenu}" DisplayMemberPath="Name" Width="150"/></StackPanel>
+                        <Button Content="適用" Command="{Binding ApplyFiltersCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,18,8,8"/>
+                        <Button Content="クリア" Command="{Binding ClearFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,18,0,8"/>
+                    </WrapPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="2">
+                <ListView x:Name="HistoryList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                    <ListView.View><GridView>
+                        <GridViewColumn Header="日付" DisplayMemberBinding="{Binding Date}" Width="105"/>
+                        <GridViewColumn Header="ワークアウト" DisplayMemberBinding="{Binding Name}" Width="180"/>
+                        <GridViewColumn Header="メニュー" DisplayMemberBinding="{Binding Menu}" Width="160"/>
+                        <GridViewColumn Header="ボリューム" DisplayMemberBinding="{Binding TotalVolume, StringFormat={}{0:N2} kg}" Width="130"/>
+                        <GridViewColumn Header="セット数" DisplayMemberBinding="{Binding TotalSets}" Width="90"/>
+                        <GridViewColumn Header="種目数" DisplayMemberBinding="{Binding ExerciseCount}" Width="90"/>
+                    </GridView></ListView.View>
+                </ListView>
+                <TextBlock Text="読み込み中…" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}"/>
+                <Border Style="{StaticResource EmptyStateCardStyle}" Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"><StackPanel><TextBlock Text="条件に一致するワークアウトがありません。" FontSize="19" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock Text="検索条件を変更して、もう一度お試しください。" Style="{StaticResource CaptionTextStyle}" TextAlignment="Center" Margin="0,7,0,16"/><Button Content="フィルターをクリア" Command="{Binding ClearFiltersCommand}" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Center"/></StackPanel></Border>
+                <Border HorizontalAlignment="Center" VerticalAlignment="Center"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorStateCardStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding PageState}" Value="Error"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Text="履歴を読み込めませんでした。" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Margin="0,6,0,12"/><Button Content="再試行" Command="{Binding RetryCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left"/></StackPanel></Border>
+            </Grid>
+
+            <Grid Grid.Row="3" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="{Binding PageNumber, StringFormat={}{0}ページ目}" VerticalAlignment="Center"/><TextBlock Text="表示件数" Style="{StaticResource CaptionTextStyle}" Margin="18,0,6,0" VerticalAlignment="Center"/><ComboBox ItemsSource="{Binding PageSizeOptions}" SelectedItem="{Binding PageSize}" Width="78"/></StackPanel>
+                <TextBlock Grid.Column="1" Text="行をダブルクリックすると詳細を表示します" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" Margin="12,0"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal"><Button Content="前のページ" Command="{Binding PreviousPageCommand}" Style="{StaticResource SecondaryButtonStyle}"/><Button Content="次のページ" Command="{Binding NextPageCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"/></StackPanel>
+            </Grid>
+        </Grid>
+
+        <Border Width="420" Style="{StaticResource CardStyle}" BorderThickness="1" Margin="16,-8,-8,-8" HorizontalAlignment="Right" Panel.ZIndex="10" Visibility="{Binding IsDrawerOpen, Converter={StaticResource BoolToVisibility}}">
+            <DockPanel><Button DockPanel.Dock="Top" Content="詳細を閉じる" Command="{Binding CloseDetailCommand}" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Right"/><views:WorkoutDetailView DataContext="{Binding SelectedDetail}"/></DockPanel>
+        </Border>
+    </Grid>
+</UserControl>
