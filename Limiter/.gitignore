@@ -1,0 +1,32 @@
+# Local dependencies and downloaded tools
+.deps/
+.downloads/
+.tools/
+
+# CMake and build output
+build/
+out/
+artifacts/
+Testing/
+
+# Visual Studio and IDE state
+.vs/
+*.suo
+*.user
+*.vcxproj.user
+CMakeUserPresets.json
+
+# Generated binaries and diagnostics
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.log
+*.dmp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
