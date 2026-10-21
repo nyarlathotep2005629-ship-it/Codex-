@@ -33,9 +33,12 @@ foreach ($file in Get-ChildItem -LiteralPath $testsRoot -Recurse -Filter '*.cs' 
             continue
         }
 
-        if ($null -ne $pending -and $line -match '^\s*\[InlineData\(') {
-            $pending.InlineDataRows++
-            continue
+        if ($null -ne $pending) {
+            $inlineDataCount = [regex]::Matches($line, '\[\s*InlineData\s*\(').Count
+            if ($inlineDataCount -gt 0) {
+                $pending.InlineDataRows += $inlineDataCount
+                continue
+            }
         }
 
         if ($null -ne $pending -and $line -match $methodPattern) {
