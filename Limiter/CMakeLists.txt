@@ -88,6 +88,9 @@ target_include_directories(libebur128_smoke PRIVATE "${LIBEBUR128_SOURCE_DIR}/eb
 target_link_libraries(libebur128_smoke PRIVATE ebur128)
 
 enable_testing()
+option(HIPHOPMAX_ENABLE_LONG_RUN_TESTS
+    "Register the 24-hour-equivalent meter memory test with CTest"
+    OFF)
 add_test(NAME INT007_libebur128_static_smoke COMMAND libebur128_smoke)
 
 add_executable(dsp_tests
@@ -120,6 +123,12 @@ target_include_directories(meter_long_run PRIVATE
     "${LIBEBUR128_SOURCE_DIR}/ebur128")
 target_compile_features(meter_long_run PRIVATE cxx_std_20)
 target_link_libraries(meter_long_run PRIVATE ebur128 Psapi)
+if(HIPHOPMAX_ENABLE_LONG_RUN_TESTS)
+    add_test(NAME MTR014_meter_long_run COMMAND meter_long_run)
+    set_tests_properties(MTR014_meter_long_run PROPERTIES
+        LABELS "long-run;memory"
+        TIMEOUT 90000)
+endif()
 
 add_executable(plugin_integration_tests
     tests/PluginIntegrationTests.cpp

@@ -58,5 +58,5 @@ $ctest = '.\.tools\cmake\cmake-4.2.1-windows-x86_64\bin\ctest.exe'
 
 ## 検証記録
 
-実施結果、未実施項目、既知事項、SHA-256は [V1_0_RELEASE_RECORD.md](V1_0_RELEASE_RECORD.md) を参照してください。初期Build PoCの履歴は [BUILD_POC_RESULTS.md](BUILD_POC_RESULTS.md) に残しています。
+実施結果、未実施項目、既知事項、SHA-256は [V1_0_RELEASE_RECORD.md](V1_0_RELEASE_RECORD.md) を参照してください。初期Build PoCの履歴は [BUILD_POC_RESULTS.md](BUILD_POC_RESULTS.md) に残しています。CTestとテストコードの対応は [TEST_TRACEABILITY.md](TEST_TRACEABILITY.md)、依存・音源の取得手順は [DEPENDENCY_SETUP.md](DEPENDENCY_SETUP.md)、今回の確認結果は [TEST_RESULT_2026-10-21.md](TEST_RESULT_2026-10-21.md) を参照してください。
 
