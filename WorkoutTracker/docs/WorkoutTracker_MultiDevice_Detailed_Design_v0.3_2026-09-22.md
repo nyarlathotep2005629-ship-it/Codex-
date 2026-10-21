@@ -69,7 +69,7 @@ Primary navigationは`Home / Workout / History / Statistics / More`。More配下
 
 ## 12. M1 acceptance record
 
-M1 Finalization Report 2026-09-22の確定EvidenceをSoTとする。true Fresh AVD、Product UI Golden Path、force-stop / rehydrate、Snapshot safety、Statistics QA、final cold start、234 full regression PASS、Android Release PASS、Windows DB unchangedを受入結果とする。
+M1 Finalization Report 2026-09-22の確定EvidenceをSoTとする設計記録である。ただし、`WorkoutTracker_Android_M1_Finalization_Report_2026-09-22.md` は現行GitHubツリーに含まれていないため、本リポジトリ単独では true Fresh AVD、Product UI Golden Path、force-stop / rehydrate、Snapshot safety、Statistics QA、final cold start、234 full regression PASS、Android Release PASS、Windows DB unchangedを再確認できない。現在の実行結果は [`TEST_RESULT_2026-10-21.md`](TEST_RESULT_2026-10-21.md) に分離して記録する。
 
 ## 13. M1 explicit boundaries
 
@@ -77,4 +77,4 @@ M1 Finalization Report 2026-09-22の確定EvidenceをSoTとする。true Fresh A
 
 ## 14. Stable freeze reference
 
-判定は **Phase M1 Android Local: PASS / Stable Accepted**。詳細Evidenceは`WorkoutTracker_Android_M1_Finalization_Report_2026-09-22.md`、配布・復帰情報は`WorkoutTracker_Android_M1_Stable_Manifest_2026-09-22.md`を参照する。
+設計記録上の判定は **Phase M1 Android Local: PASS / Stable Accepted** だが、詳細Evidenceである `WorkoutTracker_Android_M1_Finalization_Report_2026-09-22.md` と、配布・復帰情報である `WorkoutTracker_Android_M1_Stable_Manifest_2026-09-22.md` は現行GitHubツリーに存在しない。したがって、このリポジトリの現在の監査結果ではその判定を再検証済みとは扱わない。

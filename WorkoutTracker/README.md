@@ -47,7 +47,10 @@ WorkoutTracker.sln
 │  └─ WorkoutTracker.App.Tests/
 └─ docs/
    ├─ android-development.md
-   └─ WorkoutTracker_MultiDevice_Detailed_Design_v0.3_2026-09-22.md
+   ├─ WorkoutTracker_MultiDevice_Detailed_Design_v0.3_2026-09-22.md
+   ├─ TEST_SPECIFICATION_v1.md
+   ├─ TEST_TRACEABILITY.csv
+   └─ TEST_RESULT_2026-10-21.md
 ```
 
 Runtime databases, backups, Autosave/Active Draft data, logs, and generated build output are intentionally not included.
@@ -78,6 +81,8 @@ dotnet test .\WorkoutTracker.sln -c Release --no-restore --nologo
 ```
 
 Test results depend on the local .NET workload, SDK, package cache, and Windows/WPF environment. This snapshot records the source and test structure; a successful build or test run should not be inferred from the presence of the files alone.
+
+Test asset details, the 227-method inventory, reproducible ID extraction, evidence boundaries, and the current execution report are documented in [`docs/TEST_SPECIFICATION_v1.md`](docs/TEST_SPECIFICATION_v1.md), [`docs/TEST_TRACEABILITY.csv`](docs/TEST_TRACEABILITY.csv), and [`docs/TEST_RESULT_2026-10-21.md`](docs/TEST_RESULT_2026-10-21.md).
 
 ## Development process
 
