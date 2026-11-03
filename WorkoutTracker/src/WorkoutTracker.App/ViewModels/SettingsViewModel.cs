@@ -97,7 +97,7 @@ public sealed class SettingsViewModel : ObservableObject
         {
             var validation = await _restore.ValidateAsync(path);
             SelectedRestorePath = path;
-            RestoreValidation = $"検証済み — 整合性確認: 正常 / スキーマ v{validation.SchemaVersion} / マイグレーション: {validation.MigrationIds.Single()}";
+            RestoreValidation = $"検証済み — 整合性確認: 正常 / スキーマ v{validation.SchemaVersion} / マイグレーション: {string.Join(", ", validation.MigrationIds)}";
         }
         catch (Exception ex)
         {

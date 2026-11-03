@@ -122,6 +122,23 @@ public sealed class WorkoutViewModelTests
         Assert.Equal(0, h.Persistence.SaveCount);
     }
 
+    [Fact(DisplayName = "Workout exercise picker filters by name and primary muscle")]
+    public void ExercisePickerFiltersCatalog()
+    {
+        var vm = new VmHarness().ViewModel;
+        var chest = new ExerciseOption(Guid.NewGuid(), "ベンチプレス", Guid.NewGuid(), "胸");
+        var back = new ExerciseOption(Guid.NewGuid(), "デッドリフト", Guid.NewGuid(), "背中");
+        vm.AvailableExercises.Add(chest); vm.AvailableExercises.Add(back);
+        vm.SelectedExercise = chest;
+        vm.SelectedPrimaryMuscle = "背中";
+        Assert.Null(vm.SelectedExercise);
+        Assert.Equal([back], vm.FilteredExerciseOptions);
+        vm.ExerciseSearchText = "ベンチ";
+        Assert.Empty(vm.FilteredExerciseOptions);
+        vm.SelectedPrimaryMuscle = "すべて";
+        Assert.Equal([chest], vm.FilteredExerciseOptions);
+    }
+
     private sealed class VmHarness
     {
         public VmHarness()

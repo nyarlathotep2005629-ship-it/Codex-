@@ -15,8 +15,8 @@ public sealed class MigrationRecoveryTests
 
         await fixture.Initializer.InitializeFreshDatabaseAsync();
 
-        Assert.Equal(1, await ScalarIntAsync(fixture.DatabasePath, "PRAGMA user_version;"));
-        Assert.Equal(1, await ScalarIntAsync(fixture.DatabasePath, "SELECT COUNT(*) FROM __EFMigrationsHistory;"));
+        Assert.Equal(2, await ScalarIntAsync(fixture.DatabasePath, "PRAGMA user_version;"));
+        Assert.Equal(2, await ScalarIntAsync(fixture.DatabasePath, "SELECT COUNT(*) FROM __EFMigrationsHistory;"));
         Assert.Equal("legacy-value", await ScalarStringAsync(fixture.DatabasePath, "SELECT Value FROM LegacyMarker WHERE Id=1;"));
         Assert.Equal("ok", await ScalarStringAsync(fixture.DatabasePath, "PRAGMA quick_check;"));
         var backup = Assert.Single(Directory.EnumerateFiles(Path.Combine(fixture.Directory, "Backups", "Migration"), "WorkoutTracker_PreMigration_*.db"));
@@ -95,7 +95,7 @@ public sealed class MigrationRecoveryTests
 
         await fixture.Initializer.InitializeFreshDatabaseAsync();
 
-        Assert.Equal(1, await ScalarIntAsync(fixture.DatabasePath, "PRAGMA user_version;"));
+        Assert.Equal(2, await ScalarIntAsync(fixture.DatabasePath, "PRAGMA user_version;"));
         Assert.Equal("Completed", JsonDocument.Parse(await File.ReadAllTextAsync(manifest)).RootElement.GetProperty("State").GetString());
     }
 
@@ -209,7 +209,7 @@ public sealed class MigrationRecoveryTests
     {
         var directory = Path.Combine(fixture.Directory, "Maintenance"); Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, $"MigrationOperation_{operationId}.json");
-        var value = new { OperationId = operationId, FromVersion = 0, ToVersion = 1, BackupPath = backup, StartedAtUtcTicks = DateTimeOffset.UtcNow.UtcTicks, State = "Prepared", MigrationHistory = Array.Empty<string>() };
+        var value = new { OperationId = operationId, FromVersion = 0, ToVersion = 2, BackupPath = backup, StartedAtUtcTicks = DateTimeOffset.UtcNow.UtcTicks, State = "Prepared", MigrationHistory = Array.Empty<string>() };
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(value));
         return path;
     }

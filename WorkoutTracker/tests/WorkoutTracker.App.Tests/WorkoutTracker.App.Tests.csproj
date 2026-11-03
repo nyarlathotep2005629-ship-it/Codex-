@@ -11,5 +11,8 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
   </ItemGroup>
-  <ItemGroup><ProjectReference Include="..\..\src\WorkoutTracker.App\WorkoutTracker.App.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WorkoutTracker.App\WorkoutTracker.App.csproj" />
+    <Compile Include="..\..\src\WorkoutTracker.Mobile\AsyncOperationGate.cs" Link="Mobile\AsyncOperationGate.cs" />
+  </ItemGroup>
 </Project>

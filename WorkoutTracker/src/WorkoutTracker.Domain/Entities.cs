@@ -150,6 +150,11 @@ public sealed class WorkoutSession : EntityBase
         EnsureDraft(); Guard.Utc(now, nameof(now));
         WorkoutDate = workoutDate; Name = Guard.Optional(name, 100, nameof(name)); Note = Guard.Optional(note, 4000, nameof(note)); UpdatedAtUtc = now;
     }
+    public void ChangeCompletedWorkoutDate(DateOnly workoutDate, DateTimeOffset now)
+    {
+        if (Status != WorkoutStatus.Completed) throw new DomainValidationException("Only a Completed workout date can be changed.");
+        Guard.Utc(now, nameof(now)); WorkoutDate = workoutDate; UpdatedAtUtc = now;
+    }
     public void Complete(DateTimeOffset completedAtUtc)
     {
         Guard.Utc(completedAtUtc, nameof(completedAtUtc));

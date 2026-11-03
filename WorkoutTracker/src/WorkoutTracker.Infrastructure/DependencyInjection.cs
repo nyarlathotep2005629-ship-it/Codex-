@@ -27,7 +27,10 @@ public static class DependencyInjection
         services.AddSingleton<IWorkoutVerticalSlicePersistence, WorkoutVerticalSlicePersistence>();
         services.AddSingleton<IMasterDataPersistence, MasterDataPersistence>();
         services.AddSingleton<IHistoryCalendarQuery, HistoryCalendarQuery>();
+        services.AddSingleton<ICompletedWorkoutDatePersistence, CompletedWorkoutDatePersistence>();
         services.AddSingleton<IAnalyticsQuery, AnalyticsQuery>();
+        services.AddSingleton<IStandardCatalogSeeder, StandardCatalogSeeder>();
+        services.AddSingleton<IWeeklyScheduleService, WeeklyScheduleService>();
         services.AddSingleton<ITransferService, TransferService>();
         services.AddSingleton<IAppSettingsStore, AppSettingsStore>();
         services.AddSingleton<IBackupInfrastructure, BackupInfrastructure>();

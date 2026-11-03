@@ -114,6 +114,7 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
     private readonly IExerciseRepository _exercises; private readonly IWorkoutMenuRepository _menus;
     private readonly IOffUiExecutor _executor;
     private long _focusRequestId; private WorkoutFocusRequest? _currentFocusRequest; private string? _lastOperationError; private ExerciseOption? _selectedExercise;
+    private string _exerciseSearchText = string.Empty; private string _selectedPrimaryMuscle = "すべて";
     private DateOnly _workoutDate; private string? _workoutName; private string? _workoutNote;
     private readonly HashSet<string> _metadataErrors = [];
 
@@ -128,6 +129,11 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
     public event EventHandler<WorkoutFocusRequest>? FocusRequested;
     public ObservableCollection<WorkoutExerciseViewModel> Exercises { get; }
     public ObservableCollection<ExerciseOption> AvailableExercises { get; }
+    public IReadOnlyList<string> PrimaryMuscleFilters => ["すべて", .. AvailableExercises.Select(x => x.PrimaryMuscleName).Distinct().OrderBy(x => x)];
+    public IReadOnlyList<ExerciseOption> FilteredExerciseOptions => AvailableExercises.Where(x => (_selectedPrimaryMuscle == "すべて" || x.PrimaryMuscleName == _selectedPrimaryMuscle) &&
+        (string.IsNullOrWhiteSpace(_exerciseSearchText) || x.ExerciseName.Contains(_exerciseSearchText.Trim(), StringComparison.CurrentCultureIgnoreCase))).ToArray();
+    public string ExerciseSearchText { get => _exerciseSearchText; set { if (SetProperty(ref _exerciseSearchText, value ?? string.Empty)) RefreshExerciseFilter(); } }
+    public string SelectedPrimaryMuscle { get => _selectedPrimaryMuscle; set { if (SetProperty(ref _selectedPrimaryMuscle, value ?? "すべて")) RefreshExerciseFilter(); } }
     public ObservableCollection<WorkoutMenuSummary> AvailableMenus { get; }
     public Guid? SessionId => _state.SessionId;
     public bool IsActive => _state.IsActive;
@@ -150,6 +156,7 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         var exerciseRows = await _executor.RunAsync(ct => _exercises.GetActiveAsync(ct), cancellationToken); AvailableExercises.Clear(); foreach (var row in exerciseRows) AvailableExercises.Add(new(row.Id, row.Name, row.PrimaryMuscleId, row.PrimaryMuscleName));
+        OnPropertyChanged(nameof(PrimaryMuscleFilters)); RefreshExerciseFilter();
         var menuRows = await _executor.RunAsync(ct => _menus.GetSummariesAsync(ct), cancellationToken); AvailableMenus.Clear(); foreach (var row in menuRows) AvailableMenus.Add(row);
         var workout = await _load.ExecuteAsync(cancellationToken); if (workout is not null) Load(workout); else { _autoSave.Resume(); RaiseStateProperties(); }
     }
@@ -173,6 +180,11 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
         catch { ReportOperationError("ワークアウトを破棄できませんでした。再試行してください。"); return false; }
     }
     public void ReportOperationError(string message) => LastOperationError = message;
+    private void RefreshExerciseFilter()
+    {
+        OnPropertyChanged(nameof(FilteredExerciseOptions));
+        if (SelectedExercise is not null && !FilteredExerciseOptions.Contains(SelectedExercise)) SelectedExercise = null;
+    }
     public void AddSet(WorkoutExerciseViewModel exercise)
     {
         if (exercise.Sets.Count >= 100) { LastOperationError = "セットは100件までです。"; return; }

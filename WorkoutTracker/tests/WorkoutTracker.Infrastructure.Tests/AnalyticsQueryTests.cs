@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using WorkoutTracker.Application;
@@ -6,7 +8,11 @@ using WorkoutTracker.Domain;
 
 namespace WorkoutTracker.Infrastructure.Tests;
 
-public sealed class AnalyticsQueryTests
+[CollectionDefinition("Analytics performance", DisableParallelization = true)]
+public sealed class AnalyticsPerformanceCollection { }
+
+[Collection("Analytics performance")]
+public sealed class AnalyticsQueryTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 22, 8, 0, 0, TimeSpan.Zero);
     private static readonly AnalyticsPeriod August = new(new(2026, 8, 1), new(2026, 9, 1), new(2026, 7, 1));
@@ -141,14 +147,151 @@ public sealed class AnalyticsQueryTests
     [Fact(DisplayName = "NFR-004 5000 Workout 100000 Set Statistics 1Y and ALL five metrics p95 meet targets")]
     public async Task StatisticsQueryPerformance()
     {
-        await using var f = new DatabaseTestFixture(); await f.MigrateAsync(); var master = await SeedMasterAsync(f); await AddBulkAsync(f, master, 5000, 20);
-        var periods = new[] { (Range: new AnalyticsPeriod(new DateOnly(2025, 8, 23), new DateOnly(2026, 8, 23), null), Limit: 500d), (Range: new AnalyticsPeriod(new DateOnly(2021, 1, 1), new DateOnly(2027, 1, 1), null), Limit: 1000d) };
-        foreach (var period in periods) foreach (var metric in Enum.GetValues<StatisticsMetric>())
+        var testStartedUtc = DateTimeOffset.UtcNow;
+        await using var f = new DatabaseTestFixture();
+        var migrationTimer = Stopwatch.StartNew();
+        await f.MigrateAsync();
+        migrationTimer.Stop();
+
+        var seedTimer = Stopwatch.StartNew();
+        var master = await SeedMasterAsync(f);
+        await AddBulkAsync(f, master, 5000, 20);
+        seedTimer.Stop();
+
+        var counts = await ReadDatasetCountsAsync(f);
+        var periods = new[]
         {
-            await f.Analytics.GetStatisticsAsync(new(period.Range, master.ExerciseId, metric)); var samples = new List<double>(); StatisticsDto result = null!;
-            for(var i=0;i<20;i++){ var sw=Stopwatch.StartNew(); result=await f.Analytics.GetStatisticsAsync(new(period.Range, master.ExerciseId, metric)); sw.Stop(); samples.Add(sw.Elapsed.TotalMilliseconds); }
-            Assert.NotEmpty(result.Series.Points); Assert.True(P95(samples) <= period.Limit, $"{metric} p95={P95(samples):0.0}ms limit={period.Limit}ms");
+            (Name: "1Y", Range: new AnalyticsPeriod(new DateOnly(2025, 8, 23), new DateOnly(2026, 8, 23), null), Limit: 500d),
+            (Name: "ALL", Range: new AnalyticsPeriod(new DateOnly(2021, 1, 1), new DateOnly(2027, 1, 1), null), Limit: 1000d)
+        };
+        var queryPlansBeforeAnalyze = await ReadStatisticsQueryPlansAsync(f, master.ExerciseId);
+        var measurements = new List<StatisticsMeasurement>();
+
+        await using (var connection = new SqliteConnection($"Data Source={f.DatabasePath};Foreign Keys=True"))
+        {
+            await connection.OpenAsync();
+            await using var version = connection.CreateCommand();
+            version.CommandText = "SELECT sqlite_version();";
+            var sqliteVersion = Convert.ToString(await version.ExecuteScalarAsync()) ?? "unknown";
+
+            output.WriteLine("NFR-004 measurement environment");
+            output.WriteLine($"StartedUtc={testStartedUtc:O}");
+            output.WriteLine($"OS={RuntimeInformation.OSDescription}");
+            output.WriteLine($"ProcessArchitecture={RuntimeInformation.ProcessArchitecture}; OSArchitecture={RuntimeInformation.OSArchitecture}");
+            output.WriteLine($"Framework={RuntimeInformation.FrameworkDescription}; EnvironmentVersion={Environment.Version}");
+            output.WriteLine($"ProcessorCount={Environment.ProcessorCount}; ProcessorIdentifier={Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "unavailable"}");
+            output.WriteLine($"EFCoreVersion={typeof(DbContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? typeof(DbContext).Assembly.GetName().Version?.ToString() ?? "unknown"}; SQLiteVersion={sqliteVersion}");
+            output.WriteLine($"MigrationSetupMs={migrationTimer.Elapsed.TotalMilliseconds:F3}; SeedSetupMs={seedTimer.Elapsed.TotalMilliseconds:F3}");
+            output.WriteLine($"Dataset=WorkoutSessions:{counts.Workouts}, WorkoutExercises:{counts.Exercises}, WorkoutSets:{counts.Sets}; IntendedWorkouts=5000; IntendedSets=100000");
+            output.WriteLine("WarmupsPerPeriodMetric=1; SamplesPerPeriodMetric=20; P95=nearest-rank-95th-percentile (19th ordered sample)");
+            output.WriteLine("TimedRegion=IAnalyticsQuery.GetStatisticsAsync call only; DB migration, seed, row counts, diagnostics, warmup and output are excluded.");
+            WriteQueryPlans("BeforeAnalyze", queryPlansBeforeAnalyze);
         }
+
+        foreach (var period in periods)
+        foreach (var metric in Enum.GetValues<StatisticsMetric>())
+        {
+            var warmupTimer = Stopwatch.StartNew();
+            var warmupResult = await f.Analytics.GetStatisticsAsync(new(period.Range, master.ExerciseId, metric));
+            warmupTimer.Stop();
+
+            var samples = new double[20];
+            StatisticsDto result = warmupResult;
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var timer = Stopwatch.StartNew();
+                result = await f.Analytics.GetStatisticsAsync(new(period.Range, master.ExerciseId, metric));
+                timer.Stop();
+                samples[i] = timer.Elapsed.TotalMilliseconds;
+            }
+
+            var ordered = samples.Order().ToArray();
+            var measurement = new StatisticsMeasurement(
+                period.Name,
+                metric,
+                period.Limit,
+                P95(samples),
+                (ordered[9] + ordered[10]) / 2,
+                ordered[0],
+                ordered[^1],
+                warmupTimer.Elapsed.TotalMilliseconds,
+                samples,
+                result.Series.Points.Count > 0);
+            measurements.Add(measurement);
+        }
+
+        // Keep the measured run on SQLite's default planner statistics. Analyze is diagnostic only
+        // and runs after all measured samples so it cannot affect the reported NFR-004 values.
+        await using (var connection = new SqliteConnection($"Data Source={f.DatabasePath};Foreign Keys=True"))
+        {
+            await connection.OpenAsync();
+            await using var analyze = connection.CreateCommand();
+            analyze.CommandText = "ANALYZE;";
+            await analyze.ExecuteNonQueryAsync();
+        }
+        var queryPlansAfterAnalyze = await ReadStatisticsQueryPlansAsync(f, master.ExerciseId);
+
+        output.WriteLine("NFR-004 metric results (all values are emitted before assertions)");
+        foreach (var measurement in measurements)
+        {
+            output.WriteLine(
+                $"Period={measurement.Period}; Metric={measurement.Metric}; WarmupMs={measurement.WarmupMs:F3}; " +
+                $"Samples={measurement.Samples.Length}; P95Ms={measurement.P95Ms:F3}; MedianMs={measurement.MedianMs:F3}; " +
+                $"MinMs={measurement.MinMs:F3}; MaxMs={measurement.MaxMs:F3}; RangeMs={measurement.MaxMs - measurement.MinMs:F3}; " +
+                $"LimitMs={measurement.LimitMs:F0}; Threshold={(measurement.P95Ms <= measurement.LimitMs ? "PASS" : "FAIL")}; " +
+                $"SeriesPointsPresent={measurement.HasSeriesPoints}; SampleMs=[{string.Join(",", measurement.Samples.Select(x => x.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)))}]");
+        }
+        WriteQueryPlans("AfterAnalyze", queryPlansAfterAnalyze);
+        output.WriteLine($"FinishedUtc={DateTimeOffset.UtcNow:O}");
+
+        var failures = measurements
+            .Where(x => x.P95Ms > x.LimitMs || !x.HasSeriesPoints)
+            .Select(x => $"{x.Period}/{x.Metric}: p95={x.P95Ms:F3}ms limit={x.LimitMs:F0}ms; points={x.HasSeriesPoints}")
+            .ToArray();
+        Assert.Empty(failures);
+    }
+
+    private static async Task<DatasetCounts> ReadDatasetCountsAsync(DatabaseTestFixture fixture)
+    {
+        await using var db = await fixture.Factory.CreateDbContextAsync();
+        return new(
+            await db.WorkoutSessions.CountAsync(),
+            await db.WorkoutExercises.CountAsync(),
+            await db.WorkoutSets.CountAsync());
+    }
+
+    private static async Task<IReadOnlyDictionary<string, string>> ReadStatisticsQueryPlansAsync(DatabaseTestFixture fixture, Guid exerciseId)
+    {
+        const string dailyStatisticsSql = """
+            SELECT s.WorkoutDate,
+                MAX(CASE WHEN ws.Reps BETWEEN 1 AND 15 THEN printf('%010d|%020d|%s|%04d|%06d|%04d', ws.WeightHundredthsKg * (30 + ws.Reps), s.CompletedAtUtcTicks, s.Id, ws.SetNumber, ws.WeightHundredthsKg, ws.Reps) END),
+                MAX(printf('%06d|%020d|%s|%04d|%04d', ws.WeightHundredthsKg, s.CompletedAtUtcTicks, s.Id, ws.SetNumber, ws.Reps)),
+                SUM(ws.WeightHundredthsKg * ws.Reps), COUNT(*),
+                MAX(printf('%04d|%020d|%s|%04d|%06d', ws.Reps, s.CompletedAtUtcTicks, s.Id, ws.SetNumber, ws.WeightHundredthsKg))
+            FROM WorkoutSessions s
+            JOIN WorkoutExercises we ON we.WorkoutSessionId = s.Id
+            JOIN WorkoutSets ws ON ws.WorkoutExerciseId = we.Id
+            WHERE s.Status = 'Completed' AND s.WorkoutDate >= $start AND s.WorkoutDate < $end
+              AND we.ExerciseId = $exercise AND ws.WeightHundredthsKg IS NOT NULL AND ws.Reps IS NOT NULL
+            GROUP BY s.WorkoutDate ORDER BY s.WorkoutDate
+            """;
+        const string exerciseNameSql = "SELECT Name FROM Exercises WHERE Id = $id";
+        const string workoutCountSql = "SELECT COUNT(DISTINCT s.Id) FROM WorkoutSessions s JOIN WorkoutExercises we ON we.WorkoutSessionId = s.Id WHERE s.Status = 'Completed' AND s.WorkoutDate >= $start AND s.WorkoutDate < $end AND we.ExerciseId = $exercise";
+
+        await using var connection = new SqliteConnection($"Data Source={fixture.DatabasePath};Foreign Keys=True");
+        await connection.OpenAsync();
+        return new Dictionary<string, string>
+        {
+            ["ExerciseName"] = await ExplainAsync(connection, exerciseNameSql),
+            ["DailyStatistics"] = await ExplainAsync(connection, dailyStatisticsSql),
+            ["ExerciseWorkoutCount"] = await ExplainAsync(connection, workoutCountSql)
+        };
+    }
+
+    private void WriteQueryPlans(string label, IReadOnlyDictionary<string, string> plans)
+    {
+        foreach (var (query, plan) in plans)
+            output.WriteLine($"QueryPlan.{label}.{query}={plan}");
     }
 
     private static Guid Id(int value) => Guid.Parse($"00000000-0000-0000-0000-{value:D12}");
@@ -157,6 +300,8 @@ public sealed class AnalyticsQueryTests
         await using var command = connection.CreateCommand(); command.CommandText = "EXPLAIN QUERY PLAN " + sql; await using var reader = await command.ExecuteReaderAsync(); var plan = new List<string>(); while (await reader.ReadAsync()) plan.Add(reader.GetString(3)); return string.Join(" | ", plan);
     }
     private static double P95(IReadOnlyList<double> values) => values.OrderBy(x => x).ElementAt((int)Math.Ceiling(values.Count * 0.95) - 1);
+    private sealed record DatasetCounts(int Workouts, int Exercises, int Sets);
+    private sealed record StatisticsMeasurement(string Period, StatisticsMetric Metric, double LimitMs, double P95Ms, double MedianMs, double MinMs, double MaxMs, double WarmupMs, double[] Samples, bool HasSeriesPoints);
     private static async Task<Master> SeedMasterAsync(DatabaseTestFixture f, string exerciseName = "Exercise", string muscleName = "Muscle")
     {
         var suffix = Guid.NewGuid().ToString("N")[..6]; var muscle = await f.MasterData.SaveMuscleGroupAsync(new(null, $"{muscleName}-{suffix}", 0), Now); var exercise = await f.MasterData.SaveExerciseAsync(new(null, $"{exerciseName}-{suffix}", muscle.Id, [], null), Now); return new(muscle.Id, exercise.Id, exercise.Name, muscle.Name);

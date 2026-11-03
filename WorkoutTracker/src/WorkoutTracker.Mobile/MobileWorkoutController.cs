@@ -13,6 +13,8 @@ namespace WorkoutTracker.Mobile;
 public sealed class MobileWorkoutController
 {
     private readonly IDatabaseInitializer _databaseInitializer;
+    private readonly IStandardCatalogSeeder _standardCatalogSeeder;
+    private readonly IWeeklyScheduleService _weeklySchedule;
     private readonly LoadActiveWorkoutUseCase _load;
     private readonly StartWorkoutUseCase _start;
     private readonly GetPreviousPerformanceUseCase _previous;
@@ -22,6 +24,7 @@ public sealed class MobileWorkoutController
     private readonly ActiveWorkoutState _state;
     private readonly IWorkoutMenuRepository _menus;
     private readonly HistoryCalendarService _history;
+    private readonly ChangeCompletedWorkoutDateUseCase _changeCompletedWorkoutDate;
     private readonly MasterDataService _masterData;
     private readonly AnalyticsService _analytics;
     private readonly RestTimerState _restTimer;
@@ -32,6 +35,8 @@ public sealed class MobileWorkoutController
 
     public MobileWorkoutController(
         IDatabaseInitializer databaseInitializer,
+        IStandardCatalogSeeder standardCatalogSeeder,
+        IWeeklyScheduleService weeklySchedule,
         LoadActiveWorkoutUseCase load,
         StartWorkoutUseCase start,
         GetPreviousPerformanceUseCase previous,
@@ -41,6 +46,7 @@ public sealed class MobileWorkoutController
         ActiveWorkoutState state,
         IWorkoutMenuRepository menus,
         HistoryCalendarService history,
+        ChangeCompletedWorkoutDateUseCase changeCompletedWorkoutDate,
         MasterDataService masterData,
         AnalyticsService analytics,
         RestTimerState restTimer,
@@ -48,6 +54,8 @@ public sealed class MobileWorkoutController
         ITransferFileSaveService transferFileSave)
     {
         _databaseInitializer = databaseInitializer;
+        _standardCatalogSeeder = standardCatalogSeeder;
+        _weeklySchedule = weeklySchedule;
         _load = load;
         _start = start;
         _previous = previous;
@@ -57,6 +65,7 @@ public sealed class MobileWorkoutController
         _state = state;
         _menus = menus;
         _history = history;
+        _changeCompletedWorkoutDate = changeCompletedWorkoutDate;
         _masterData = masterData;
         _analytics = analytics;
         _restTimer = restTimer;
@@ -67,6 +76,21 @@ public sealed class MobileWorkoutController
     }
 
     public event EventHandler? Changed;
+    public async Task<IReadOnlyList<BaseDayDto>> GetBaseWeekAsync(CancellationToken cancellationToken = default) { await EnsureStartedAsync(cancellationToken); return await _weeklySchedule.GetBaseWeekAsync(cancellationToken); }
+    public async Task<IReadOnlyList<PlannedDayDto>> GetPlannedWeekAsync(DateOnly date, CancellationToken cancellationToken = default) { await EnsureStartedAsync(cancellationToken); return await _weeklySchedule.GetWeekAsync(date, cancellationToken); }
+    public async Task SaveBaseWeekAsync(IReadOnlyList<BaseDayDto> days, CancellationToken cancellationToken = default) { await EnsureStartedAsync(cancellationToken); await _weeklySchedule.SaveBaseWeekAsync(days, cancellationToken); }
+    public async Task SetScheduleOverrideAsync(DateOnly date, Guid? menuId, bool isRest, bool forWeek, CancellationToken cancellationToken = default)
+    {
+        await EnsureStartedAsync(cancellationToken);
+        if (forWeek) await _weeklySchedule.SetWeekDayAsync(date, menuId, isRest, cancellationToken);
+        else await _weeklySchedule.SetDateAsync(date, menuId, isRest, cancellationToken);
+    }
+    public async Task ClearScheduleOverrideAsync(DateOnly date, bool forWeek, CancellationToken cancellationToken = default)
+    {
+        await EnsureStartedAsync(cancellationToken);
+        if (forWeek) await _weeklySchedule.ClearWeekDayAsync(date, cancellationToken);
+        else await _weeklySchedule.ClearDateAsync(date, cancellationToken);
+    }
     public IReadOnlyList<WorkoutMenuSummary> Menus { get; private set; } = [];
     public IReadOnlyList<WorkoutHistoryItem> RecentWorkouts { get; private set; } = [];
     public ActiveWorkoutDto? CurrentWorkout => _state.CurrentWorkout;
@@ -79,6 +103,7 @@ public sealed class MobileWorkoutController
         _ => "保存済み"
     };
     public string? LastError { get; private set; }
+    public IReadOnlyList<string> CatalogConflicts { get; private set; } = [];
     public TimeSpan RestTimerRemaining => _restTimer.GetRemaining();
     public bool IsRestTimerRunning => _restTimer.IsRunning;
 
@@ -132,6 +157,7 @@ public sealed class MobileWorkoutController
         {
             if (_started) return;
             await _databaseInitializer.InitializeFreshDatabaseAsync(cancellationToken);
+            CatalogConflicts = (await _standardCatalogSeeder.SeedAsync(cancellationToken)).Conflicts;
             await RefreshCatalogAsync(cancellationToken);
             await _load.ExecuteAsync(cancellationToken);
             _autoSave.Resume();
@@ -167,6 +193,12 @@ public sealed class MobileWorkoutController
     {
         await EnsureStartedAsync(cancellationToken);
         return await _history.GetWorkoutDetailAsync(sessionId, cancellationToken);
+    }
+
+    public async Task<bool> ChangeCompletedWorkoutDateAsync(Guid sessionId, DateOnly workoutDate, CancellationToken cancellationToken = default)
+    {
+        await EnsureStartedAsync(cancellationToken);
+        return await _changeCompletedWorkoutDate.ExecuteAsync(sessionId, workoutDate, cancellationToken);
     }
 
     /// <summary>Gets all days for one month through the existing calendar query contract.</summary>
@@ -276,10 +308,13 @@ public sealed class MobileWorkoutController
     }
 
     public async Task<StartWorkoutResult> StartAsync(Guid? menuId, CancellationToken cancellationToken = default)
+        => await StartOnDateAsync(menuId, DateOnly.FromDateTime(DateTime.Today), cancellationToken);
+
+    public async Task<StartWorkoutResult> StartOnDateAsync(Guid? menuId, DateOnly date, CancellationToken cancellationToken = default)
     {
         await EnsureStartedAsync(cancellationToken);
         LastError = null;
-        var result = await _start.ExecuteAsync(new StartWorkoutRequest(menuId, DateOnly.FromDateTime(DateTime.Today)), cancellationToken);
+        var result = await _start.ExecuteAsync(new StartWorkoutRequest(menuId, date), cancellationToken);
         if (result is StartWorkoutResult.ExistingDraft) await _load.ExecuteAsync(cancellationToken);
         _autoSave.BeginWorkout();
         RaiseChanged();

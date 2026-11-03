@@ -52,6 +52,22 @@ public sealed class MasterDataViewModelTests
         await vm.SetSelectedExerciseActiveAsync(false); Assert.Single(vm.FilteredExercises); Assert.Empty(vm.ActiveExercises);
     }
 
+    [Fact(DisplayName = "FR-04 primary muscle filter applies to both management and menu choices")]
+    public async Task PrimaryMuscleFilter()
+    {
+        await using var h = await MasterHarness.CreateAsync(); var vm = h.ViewModel;
+        foreach (var muscle in new[] { "胸", "背中" }) { vm.NewMuscleGroupCommand.Execute(null); vm.MuscleName = muscle; await vm.SaveMuscleGroupAsync(); }
+        foreach (var (name, muscle) in new[] { ("ベンチプレス", "胸"), ("ラットプルダウン", "背中") })
+        {
+            vm.NewExerciseCommand.Execute(null); vm.ExerciseName = name; vm.ExercisePrimaryMuscle = vm.MuscleGroups.Single(x => x.Name == muscle); await vm.SaveExerciseAsync();
+        }
+        vm.SelectedPrimaryMuscleFilter = "胸";
+        Assert.Equal("ベンチプレス", Assert.Single(vm.FilteredExercises).Name);
+        Assert.Equal("ベンチプレス", Assert.Single(vm.ActiveExercises).Name);
+        vm.SelectedPrimaryMuscleFilter = "すべて";
+        Assert.Equal(2, vm.FilteredExercises.Count());
+    }
+
     [Fact(DisplayName = "MST-009 Menu editor Up Down ordering is keyboard-operable before transactional save")]
     public async Task MenuOrderCommands()
     {

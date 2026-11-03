@@ -1,6 +1,6 @@
 # Workout Tracker Multi-device Detailed Design v0.3
 
-更新日: 2026-09-22  
+更新日: 2026-09-22
 位置付け: v0.2を基礎にしたM1確定差分。M2の同期設計は含めない。
 
 ## 1. Platform boundary

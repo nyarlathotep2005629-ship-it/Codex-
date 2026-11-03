@@ -50,7 +50,20 @@
         </Grid>
 
         <Border Width="420" Style="{StaticResource CardStyle}" BorderThickness="1" Margin="16,-8,-8,-8" HorizontalAlignment="Right" Panel.ZIndex="10" Visibility="{Binding IsDrawerOpen, Converter={StaticResource BoolToVisibility}}">
-            <DockPanel><Button DockPanel.Dock="Top" Content="詳細を閉じる" Command="{Binding CloseDetailCommand}" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Right"/><views:WorkoutDetailView DataContext="{Binding SelectedDetail}"/></DockPanel>
+            <DockPanel>
+                <Button DockPanel.Dock="Top" Content="詳細を閉じる" Command="{Binding CloseDetailCommand}" Style="{StaticResource QuietButtonStyle}" HorizontalAlignment="Right"/>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <TextBlock Text="実施日" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,4"/>
+                    <WrapPanel VerticalAlignment="Center">
+                        <DatePicker SelectedDate="{Binding SelectedWorkoutDate, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsEditingWorkoutDate}"/>
+                        <Button Content="日付を変更" Command="{Binding EditWorkoutDateCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" Visibility="{Binding CanEditWorkoutDate, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="保存" Command="{Binding SaveWorkoutDateCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0" Visibility="{Binding IsEditingWorkoutDate, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="キャンセル" Command="{Binding CancelWorkoutDateCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="8,0,0,0" Visibility="{Binding IsEditingWorkoutDate, Converter={StaticResource BoolToVisibility}}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding DateEditError}" Foreground="IndianRed" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+                <views:WorkoutDetailView DataContext="{Binding SelectedDetail}"/>
+            </DockPanel>
         </Border>
     </Grid>
 </UserControl>

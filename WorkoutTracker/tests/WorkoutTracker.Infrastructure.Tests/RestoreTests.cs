@@ -8,6 +8,28 @@ namespace WorkoutTracker.Infrastructure.Tests;
 
 public sealed class RestoreTests
 {
+    [Fact(DisplayName = "Schema v1 backup is upgraded only in staging before restore")]
+    public async Task LegacyBackupRestoresThroughStagedMigration()
+    {
+        await using var fixture = new DatabaseTestFixture();
+        await fixture.MigrateAsync();
+        await fixture.Settings.SaveThemeAsync(ThemeMode.Light);
+        var currentBackup = (await fixture.Backup.CreateBackupAsync()).BackupPath;
+        var legacy = Path.Combine(fixture.Directory, "legacy-v1.db");
+        File.Copy(currentBackup, legacy);
+        await ExecuteAsync(legacy, "DROP TABLE WeeklyScheduleRules; DELETE FROM __EFMigrationsHistory WHERE MigrationId='20261103000000_WeeklySchedule'; PRAGMA user_version=1;");
+        var legacyHash = Hash(legacy);
+        Assert.Equal(1, (await fixture.Restore.ValidateAsync(legacy)).SchemaVersion);
+
+        await fixture.Settings.SaveThemeAsync(ThemeMode.Dark);
+        var result = await fixture.Restore.RestoreAsync(legacy, true);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.RestoredDatabase.SchemaVersion);
+        Assert.Equal(legacyHash, Hash(legacy));
+        Assert.Equal(ThemeMode.Light, (await fixture.Settings.GetAsync()).ThemeMode);
+        Assert.True(File.Exists(result.EmergencyBackupPath));
+    }
     [Fact(DisplayName = "BKP-005 BKP-009 BKP-010 BKP-019 BKP-020 BKP-022 Restore replaces primary, retains Emergency, reloads State, and resumes")]
     public async Task RestoreSuccess()
     {

@@ -1,84 +1,42 @@
-# Workout Tracker
+# WorkoutTracker — v1.0 Release Candidate
 
-Workout Tracker is a Windows desktop workout-recording application under continuous development. This directory is a portfolio-oriented snapshot of the current source state; it is not presented as a completed or versioned release.
+WorkoutTracker is a v1.0 release candidate for Windows (WPF) and Android (.NET MAUI), with shared Domain, Application, and Infrastructure layers backed by SQLite and Entity Framework Core.
 
-## Current scope
+## Implemented scope in this candidate
 
-The repository contains a Windows WPF application, shared Domain/Application/Infrastructure projects, a .NET MAUI Android project, and automated tests. The current code and accompanying documents cover the following areas:
+- FR-01: edit the date of a completed workout while retaining its history snapshot.
+- FR-02: explain RM / estimated 1RM and RPE in the Windows and Android interfaces.
+- FR-03: weekly schedules, rest days, and starting a workout from a schedule.
+- FR-04: a shared catalog of 12 muscle groups and 100 standard exercises, with search and primary-muscle filters.
+- FR-05: coordinated UI improvements across workout entry, statistics, history, calendar, and schedule screens.
+- Shared local persistence, backup/restore, migration recovery, and `.wtb` transfer support.
 
-- Workout recording and master data
-- Active Draft persistence, Autosave, and Rehydrate
-- History, Calendar, Dashboard, and Statistics
-- SQLite persistence through EF Core
-- Backup/Restore and startup Migration handling
-- Keyset-based history pagination
-- System, Light, and Dark theme support in the Windows UI
-- Local Android presentation work that reuses the shared core
-- Domain, Application, Infrastructure, and WPF-oriented automated tests
-
-Manual transfer and multi-device work is still under development. This snapshot does not claim that every planned device, transfer, or human-acceptance gate is complete.
-
-## Technology
-
-- C# / .NET 10
-- WPF and XAML for the Windows desktop application
-- .NET MAUI / Android for the mobile project
-- MVVM-oriented WPF presentation structure
-- SQLite and Entity Framework Core 10
-- ScottPlot.WPF for Windows charts
-- xUnit v3 and Microsoft.NET.Test.Sdk for automated tests
-
-Package versions are centrally managed in `Directory.Packages.props`. The local `dotnet-ef` tool version is pinned in `.config/dotnet-tools.json`.
-
-## Project structure
+## Projects
 
 ```text
-WorkoutTracker.sln
-├─ src/
-│  ├─ WorkoutTracker.App/            Windows WPF application
-│  ├─ WorkoutTracker.Application/   application services and use cases
-│  ├─ WorkoutTracker.Domain/        domain model and rules
-│  ├─ WorkoutTracker.Infrastructure/SQLite, EF Core, persistence, migrations
-│  └─ WorkoutTracker.Mobile/        .NET MAUI Android presentation
-├─ tests/
-│  ├─ WorkoutTracker.Domain.Tests/
-│  ├─ WorkoutTracker.Application.Tests/
-│  ├─ WorkoutTracker.Infrastructure.Tests/
-│  └─ WorkoutTracker.App.Tests/
-└─ docs/
-   ├─ android-development.md
-   └─ WorkoutTracker_MultiDevice_Detailed_Design_v0.3_2026-09-22.md
+src/WorkoutTracker.App/             Windows WPF
+src/WorkoutTracker.Mobile/          .NET MAUI Android
+src/WorkoutTracker.Domain/           Domain model and rules
+src/WorkoutTracker.Application/      Shared services and use cases
+src/WorkoutTracker.Infrastructure/   SQLite, EF Core, migration, backup, transfer
+ tests/                              Domain, Application, Infrastructure, and WPF tests
+ docs/                               Design and verification records
 ```
 
-Runtime databases, backups, Autosave/Active Draft data, logs, and generated build output are intentionally not included.
-
-## Build and run
-
-Restore packages once, then build the solution:
+## Build and test
 
 ```powershell
 dotnet restore .\WorkoutTracker.sln
 dotnet build .\WorkoutTracker.sln -c Release --no-restore --nologo
-```
-
-Run the Windows WPF application:
-
-```powershell
-dotnet run --project .\src\WorkoutTracker.App\WorkoutTracker.App.csproj -c Release --no-restore
-```
-
-The Android project targets `net10.0-android`. Android-specific restore, build, packaging, installation, and run notes are in [`docs/android-development.md`](docs/android-development.md).
-
-## Tests
-
-Run the solution test projects with:
-
-```powershell
 dotnet test .\WorkoutTracker.sln -c Release --no-restore --nologo
 ```
 
-Test results depend on the local .NET workload, SDK, package cache, and Windows/WPF environment. This snapshot records the source and test structure; a successful build or test run should not be inferred from the presence of the files alone.
+For Android release build instructions, see [docs/android-development.md](docs/android-development.md). Current verification evidence and limitations are recorded in [docs/V1_Integration_Report_2026-11-03.md](docs/V1_Integration_Report_2026-11-03.md), [docs/NFR-004_Measurement_2026-11-02.md](docs/NFR-004_Measurement_2026-11-02.md), and [docs/Android_Release_Build_2026-11-02.md](docs/Android_Release_Build_2026-11-02.md).
 
-## Development process
+## Release status
 
-Most of the code has been implemented with an AI agent as the primary coding partner. The user remains responsible for requirements and design organization, architectural decisions, review, test planning and execution, human/device acceptance, and understanding the resulting code. This repository preserves that collaborative development state without claiming that the AI acted autonomously or that all planned work is finished.
+This branch is a **v1.0 release candidate**, not a formally released or production-approved version. The latest recorded integration run reports 272 automated tests passing and Windows/Android Release builds succeeding, with the NFR-004 parallel-run sensitivity documented. The latest source commit must be revalidated before distribution.
+
+Not yet established by this repository check: migration against personal production databases, Android physical-device acceptance, full manual acceptance of every screen, and robust NFR-004 margin under concurrent load. Do not infer those gates from compile or automated test results.
+
+Runtime databases, backups, test data, logs, build intermediates, and signing keys are excluded from source release archives.

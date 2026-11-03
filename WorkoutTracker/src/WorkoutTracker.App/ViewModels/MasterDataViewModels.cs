@@ -80,6 +80,7 @@ public sealed class MasterDataViewModel : ObservableObject
     private string? _menuNameError;
     private string? _menuExerciseError;
     private string _exerciseSearchText = string.Empty;
+    private string _selectedPrimaryMuscleFilter = "すべて";
     private bool _isBusy;
     private bool _initialized;
 
@@ -117,6 +118,8 @@ public sealed class MasterDataViewModel : ObservableObject
     public string? MenuNameError { get => _menuNameError; private set => SetProperty(ref _menuNameError, value); }
     public string? MenuExerciseError { get => _menuExerciseError; private set => SetProperty(ref _menuExerciseError, value); }
     public string ExerciseSearchText { get => _exerciseSearchText; set { if (SetProperty(ref _exerciseSearchText, value)) { OnPropertyChanged(nameof(FilteredExercises)); OnPropertyChanged(nameof(ActiveExercises)); } } }
+    public IReadOnlyList<string> PrimaryMuscleFilterOptions => ["すべて", .. MuscleGroups.Select(x => x.Name)];
+    public string SelectedPrimaryMuscleFilter { get => _selectedPrimaryMuscleFilter; set { if (SetProperty(ref _selectedPrimaryMuscleFilter, value)) { OnPropertyChanged(nameof(FilteredExercises)); OnPropertyChanged(nameof(ActiveExercises)); } } }
     public bool HasError => !string.IsNullOrWhiteSpace(OperationError);
     public string PageState => IsBusy ? "Loading" : HasError ? "Error" : Menus.Count == 0 && Exercises.Count == 0 ? "Empty" : "Loaded";
 
@@ -170,6 +173,7 @@ public sealed class MasterDataViewModel : ObservableObject
             var musclesTask = _service.GetMuscleGroupsAsync(); var exercisesTask = _service.GetExercisesAsync(true); var menusTask = _service.GetMenusAsync();
             await Task.WhenAll(musclesTask, exercisesTask, menusTask);
             Replace(MuscleGroups, (await musclesTask).Select(x => new MuscleGroupItemViewModel(x)));
+            OnPropertyChanged(nameof(PrimaryMuscleFilterOptions));
             Replace(Exercises, (await exercisesTask).Select(x => new ExerciseMasterItemViewModel(x)));
             Replace(Menus, (await menusTask).Select(x => new MenuMasterItemViewModel(x)));
             OnPropertyChanged(nameof(FilteredExercises)); OnPropertyChanged(nameof(ActiveExercises)); OnPropertyChanged(nameof(PageState)); NewMuscleGroup(); NewExercise(); NewMenu();
@@ -268,7 +272,7 @@ public sealed class MasterDataViewModel : ObservableObject
     }
     private async Task ReloadMusclesAndExercisesAsync()
     {
-        var muscles = await _service.GetMuscleGroupsAsync(); Replace(MuscleGroups, muscles.Select(x => new MuscleGroupItemViewModel(x))); await ReloadExercisesAndMenusAsync();
+        var muscles = await _service.GetMuscleGroupsAsync(); Replace(MuscleGroups, muscles.Select(x => new MuscleGroupItemViewModel(x))); OnPropertyChanged(nameof(PrimaryMuscleFilterOptions)); await ReloadExercisesAndMenusAsync();
     }
     private async Task ReloadExercisesAndMenusAsync()
     {
@@ -295,6 +299,7 @@ public sealed class MasterDataViewModel : ObservableObject
     }
     private IEnumerable<ExerciseMasterItemViewModel> FilterExercises(IEnumerable<ExerciseMasterItemViewModel> source)
     {
+        if (SelectedPrimaryMuscleFilter != "すべて") source = source.Where(x => x.PrimaryMuscleName == SelectedPrimaryMuscleFilter);
         var term = ExerciseSearchText.Trim(); return string.IsNullOrEmpty(term) ? source : source.Where(x => x.Name.Contains(term, StringComparison.CurrentCultureIgnoreCase) || x.PrimaryMuscleName.Contains(term, StringComparison.CurrentCultureIgnoreCase) || x.SecondaryMuscles.Contains(term, StringComparison.CurrentCultureIgnoreCase));
     }
 }

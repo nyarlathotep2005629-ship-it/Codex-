@@ -53,3 +53,8 @@ public interface IHistoryCalendarQuery
     Task<WorkoutDetailDto?> GetWorkoutDetailAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<CalendarMonthDto> GetCalendarMonthAsync(int year, int month, CancellationToken cancellationToken = default);
 }
+
+public interface ICompletedWorkoutDatePersistence
+{
+    Task<bool> ChangeDateAsync(Guid sessionId, DateOnly workoutDate, DateTimeOffset now, CancellationToken cancellationToken = default);
+}

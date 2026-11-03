@@ -17,7 +17,7 @@ public sealed class LifecycleTests
 
         Assert.Equal(ThemeMode.Dark, (await fixture.Settings.GetAsync()).ThemeMode);
         await using var db = await fixture.Factory.CreateDbContextAsync();
-        Assert.Single(await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(2, (await db.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Single(await db.AppSettings.ToListAsync());
     }
 

@@ -5,7 +5,8 @@ public enum TransferAggregateKind
     MuscleGroup,
     Exercise,
     WorkoutMenu,
-    WorkoutSession
+    WorkoutSession,
+    WeeklySchedule
 }
 
 public sealed record TransferCounts(
@@ -16,7 +17,8 @@ public sealed record TransferCounts(
     int MenuExercises,
     int WorkoutSessions,
     int WorkoutExercises,
-    int WorkoutSets);
+    int WorkoutSets,
+    int ScheduleRules = 0);
 
 public sealed record TransferManifestV1(
     string Format,
@@ -103,7 +105,10 @@ public sealed record TransferDataV1(
     IReadOnlyList<MuscleGroupTransferDto> MuscleGroups,
     IReadOnlyList<ExerciseTransferDto> Exercises,
     IReadOnlyList<WorkoutMenuTransferDto> WorkoutMenus,
-    IReadOnlyList<WorkoutSessionTransferDto> WorkoutSessions);
+    IReadOnlyList<WorkoutSessionTransferDto> WorkoutSessions,
+    IReadOnlyList<ScheduleRuleTransferDto>? ScheduleRules = null);
+
+public sealed record ScheduleRuleTransferDto(int Kind, int AnchorDayNumber, int Weekday, Guid? MenuId, bool IsRest);
 
 public sealed record TransferPackage(
     TransferManifestV1 Manifest,

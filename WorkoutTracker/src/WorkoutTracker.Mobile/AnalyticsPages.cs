@@ -13,7 +13,12 @@ internal sealed class StatisticsPage : MobilePageBase
     private Picker? _periodPicker;
     private Picker? _metricPicker;
     private StatisticsDto? _statistics;
-    private bool _loading;
+    private readonly AsyncOperationGate _requestGate = new();
+    private CancellationTokenSource? _requestCancellation;
+    private bool _isLoadingExercises;
+    private bool _isLoadingStatistics;
+    private string? _loadError;
+    private string? _statisticsError;
 
     public StatisticsPage(MobileWorkoutController workouts)
     {
@@ -25,21 +30,47 @@ internal sealed class StatisticsPage : MobilePageBase
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        if (_exercises.Count == 0 && !_loading) await LoadAsync();
+        if (_exercises.Count == 0 && !_isLoadingExercises)
+            await LoadAsync();
+        else if (_exercises.Count > 0 && !_isLoadingStatistics)
+            await RefreshStatisticsAsync();
+    }
+
+    protected override void OnDisappearing()
+    {
+        _requestCancellation?.Cancel();
+        base.OnDisappearing();
     }
 
     private async Task LoadAsync()
     {
-        _loading = true;
-        Content = new VerticalStackLayout { Padding = 20, Children = { Text("統計", 28, bold: true), Text("読み込み中...", 14, Secondary) } };
-        try
+        using var requestCancellation = new CancellationTokenSource();
+        await _requestGate.TryRunAsync(async () =>
         {
-            _exercises = await _workouts.GetAnalyticsExerciseOptionsAsync();
+            _requestCancellation = requestCancellation;
+            _isLoadingExercises = true;
+            _loadError = null;
+            _statisticsError = null;
             Render();
-            if (_exercises.Count > 0) await RefreshStatisticsAsync();
-        }
-        catch { Content = new VerticalStackLayout { Padding = 20, Children = { Text("統計を読み込めませんでした。", 16, Color.FromArgb("#EF9A9A")) } }; }
-        finally { _loading = false; }
+            try
+            {
+                _exercises = await _workouts.GetAnalyticsExerciseOptionsAsync(requestCancellation.Token);
+                if (requestCancellation.IsCancellationRequested) return;
+                if (_exercises.Count > 0)
+                    await LoadStatisticsCoreAsync(requestCancellation.Token);
+            }
+            catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
+            catch
+            {
+                _loadError = "統計の種目一覧を読み込めませんでした。再試行してください。";
+            }
+            finally
+            {
+                _isLoadingExercises = false;
+                _requestCancellation = null;
+                Render();
+            }
+        });
     }
 
     private void Render()
@@ -49,7 +80,15 @@ internal sealed class StatisticsPage : MobilePageBase
         stack.Children.Add(Text("完了済みワークアウトの記録を、この端末内で集計します。", 14, Secondary));
         if (_exercises.Count == 0)
         {
-            stack.Children.Add(Card(Text("統計を表示する種目がありません。トレーニングデータを作成し、ワークアウトを完了するとここに表示されます。", 14, Secondary)));
+            if (_isLoadingExercises)
+                stack.Children.Add(Card(Text("読み込み中...", 14, Secondary)));
+            else if (_loadError is not null)
+            {
+                stack.Children.Add(Card(Text(_loadError, 14, Color.FromArgb("#EF9A9A"))));
+                stack.Children.Add(Action("再試行", async (_, _) => await LoadAsync(), primary: true));
+            }
+            else
+                stack.Children.Add(Card(Text("統計を表示する種目がありません。トレーニングデータを作成し、ワークアウトを完了するとここに表示されます。", 14, Secondary)));
             Content = new ScrollView { Content = stack };
             return;
         }
@@ -60,25 +99,66 @@ internal sealed class StatisticsPage : MobilePageBase
         stack.Children.Add(_exercisePicker);
         stack.Children.Add(_periodPicker);
         stack.Children.Add(_metricPicker);
-        stack.Children.Add(Action("表示を更新", async (_, _) => await RefreshStatisticsAsync(), primary: true));
-        if (_loading) stack.Children.Add(Card(Text("読み込み中...", 14, Secondary)));
+        var refreshButton = Action("表示を更新", async (_, _) => await RefreshStatisticsAsync(), primary: true);
+        refreshButton.IsEnabled = !_isLoadingExercises && !_isLoadingStatistics;
+        stack.Children.Add(refreshButton);
+        if (_statisticsError is not null)
+            stack.Children.Add(Card(Text(_statisticsError, 14, Color.FromArgb("#EF9A9A"))));
+        if (_isLoadingStatistics) stack.Children.Add(Card(Text("読み込み中...", 14, Secondary)));
         else if (_statistics is not null) stack.Children.Add(BuildStatisticsCard(_statistics));
         Content = new ScrollView { Content = stack };
     }
 
     private async Task RefreshStatisticsAsync()
     {
-        if (_loading || _exercisePicker is null || _periodPicker is null || _metricPicker is null) return;
+        if (_isLoadingExercises || _isLoadingStatistics || _exercisePicker is null || _periodPicker is null || _metricPicker is null) return;
         var exerciseIndex = Math.Clamp(_exercisePicker.SelectedIndex, 0, _exercises.Count - 1);
         var periods = Enum.GetValues<DashboardPeriod>();
         var metrics = Enum.GetValues<StatisticsMetric>();
         var period = periods[Math.Clamp(_periodPicker.SelectedIndex, 0, periods.Length - 1)];
         var metric = metrics[Math.Clamp(_metricPicker.SelectedIndex, 0, metrics.Length - 1)];
-        _loading = true;
+        using var requestCancellation = new CancellationTokenSource();
+        await _requestGate.TryRunAsync(async () =>
+        {
+            _requestCancellation = requestCancellation;
+            try
+            {
+                await LoadStatisticsCoreAsync(requestCancellation.Token, _exercises[exerciseIndex].Id, period, metric);
+            }
+            finally
+            {
+                _requestCancellation = null;
+                Render();
+            }
+        });
+    }
+
+    private async Task LoadStatisticsCoreAsync(CancellationToken cancellationToken, Guid? exerciseId = null, DashboardPeriod? selectedPeriod = null, StatisticsMetric? selectedMetric = null)
+    {
+        if (_exercises.Count == 0) return;
+        var exerciseIndex = Math.Clamp(_exercisePicker?.SelectedIndex ?? 0, 0, _exercises.Count - 1);
+        var periods = Enum.GetValues<DashboardPeriod>();
+        var metrics = Enum.GetValues<StatisticsMetric>();
+        var period = selectedPeriod ?? periods[Math.Clamp(_periodPicker?.SelectedIndex ?? 1, 0, periods.Length - 1)];
+        var metric = selectedMetric ?? metrics[Math.Clamp(_metricPicker?.SelectedIndex ?? 0, 0, metrics.Length - 1)];
+        _isLoadingStatistics = true;
+        _statistics = null;
+        _statisticsError = null;
         Render();
-        try { _statistics = await _workouts.GetStatisticsAsync(_exercises[exerciseIndex].Id, period, metric, DateOnly.FromDateTime(DateTime.Today)); }
-        catch { _statistics = null; }
-        finally { _loading = false; Render(); }
+        try
+        {
+            _statistics = await _workouts.GetStatisticsAsync(exerciseId ?? _exercises[exerciseIndex].Id, period, metric, DateOnly.FromDateTime(DateTime.Today), cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch
+        {
+            _statisticsError = "統計を読み込めませんでした。表示を更新して再試行してください。";
+        }
+        finally
+        {
+            _isLoadingStatistics = false;
+            Render();
+        }
     }
 
     private static Picker ChoicePicker(string title, IReadOnlyList<string> items, int index) => new()
@@ -92,11 +172,13 @@ internal sealed class StatisticsPage : MobilePageBase
         MinimumHeightRequest = 48
     };
 
-    private static View BuildStatisticsCard(StatisticsDto data)
+    private View BuildStatisticsCard(StatisticsDto data)
     {
         var stack = new VerticalStackLayout { Spacing = 10 };
         stack.Children.Add(Text(data.ExerciseName, 20, bold: true));
         stack.Children.Add(Text($"{data.Range.Start:yyyy/M/d} 〜 {data.Range.EndExclusive.AddDays(-1):yyyy/M/d} ・ {data.WorkoutCount} 回", 13, Secondary));
+        if (data.Metric == StatisticsMetric.EstimatedOneRepMax)
+            stack.Children.Add(Action("推定1RMの計算根拠", OnShowEstimatedOneRepMaxExplanation));
         if (data.Series.Points.Count == 0)
         {
             stack.Children.Add(Text("この期間には完了済みの記録がありません。", 14, Secondary));
@@ -116,6 +198,9 @@ internal sealed class StatisticsPage : MobilePageBase
         stack.Children.Add(new GraphicsView { HeightRequest = 210, Drawable = new StatisticsChartDrawable(data.Series) });
         return Card(stack);
     }
+
+    private async void OnShowEstimatedOneRepMaxExplanation(object? sender, EventArgs e) =>
+        await DisplayAlertAsync("RM・推定1RMの計算根拠", WorkoutMetricExplanations.EstimatedOneRepMax, "閉じる");
 
     private static string PeriodText(DashboardPeriod period) => period switch
     {

@@ -97,6 +97,36 @@ public sealed class TransferServiceTests
         Assert.Equal(0, await db.WorkoutSessions.CountAsync());
     }
 
+    [Fact(DisplayName = "FR-04 transfer rejects an alias with a different ID before writing")]
+    public async Task AliasWithDifferentIdCannotBeImported()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var muscleId = Guid.NewGuid();
+        await using var source = new DatabaseTestFixture();
+        await source.Initializer.InitializeFreshDatabaseAsync();
+        await using (var db = await source.Factory.CreateDbContextAsync())
+        {
+            db.AddRange(new MuscleGroup(muscleId, "胸", 0, now), new Exercise(Guid.NewGuid(), "Bench Press", muscleId, null, now));
+            await db.SaveChangesAsync();
+        }
+        var path = Path.Combine(source.Directory, "alias-collision.wtb");
+        await source.Transfer.ExportAsync(path, "Windows", "test");
+
+        await using var target = new DatabaseTestFixture();
+        await target.Initializer.InitializeFreshDatabaseAsync();
+        await using (var db = await target.Factory.CreateDbContextAsync())
+        {
+            db.AddRange(new MuscleGroup(muscleId, "胸", 0, now), new Exercise(Guid.NewGuid(), "ベンチプレス", muscleId, null, now));
+            await db.SaveChangesAsync();
+        }
+        var plan = await target.Transfer.CreateImportPlanAsync(path);
+        var conflict = Assert.Single(plan.Conflicts);
+        Assert.Equal(TransferAggregateKind.Exercise, conflict.Kind);
+        await Assert.ThrowsAsync<TransferValidationException>(() => target.Transfer.ImportAsync(plan, [new(conflict.Kind, conflict.Id, true)]));
+        await using var verify = await target.Factory.CreateDbContextAsync();
+        Assert.Equal(1, await verify.Exercises.CountAsync());
+    }
+
     [Fact(DisplayName = "M2-TRANSFER-005 conflict import replaces the selected aggregate children")]
     public async Task ConflictImportReplacesSelectedMenuChildren()
     {
