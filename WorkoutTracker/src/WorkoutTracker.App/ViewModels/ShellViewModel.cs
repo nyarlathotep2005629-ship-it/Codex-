@@ -12,23 +12,28 @@ public sealed class ShellViewModel : ObservableObject
     private readonly DashboardViewModel? _dashboard;
     private readonly StatisticsViewModel? _statistics;
     private readonly SettingsViewModel? _settings;
+    private readonly WeeklyScheduleViewModel? _weeklySchedule;
     private readonly IWriteAdmissionGate? _writeGate;
     private object _currentPage;
     private bool _initialized;
-    public ShellViewModel(ActiveWorkoutViewModel workout, MasterDataViewModel? masterData = null, HistoryViewModel? history = null, CalendarViewModel? calendar = null, DashboardViewModel? dashboard = null, StatisticsViewModel? statistics = null, SettingsViewModel? settings = null, IWriteAdmissionGate? writeGate = null)
+    public ShellViewModel(ActiveWorkoutViewModel workout, MasterDataViewModel? masterData = null, HistoryViewModel? history = null, CalendarViewModel? calendar = null, DashboardViewModel? dashboard = null, StatisticsViewModel? statistics = null, SettingsViewModel? settings = null, IWriteAdmissionGate? writeGate = null, WeeklyScheduleViewModel? weeklySchedule = null)
     {
-        _workout = workout; _masterData = masterData; _history = history; _calendar = calendar; _dashboard = dashboard; _statistics = statistics; _settings = settings; _writeGate = writeGate; _currentPage = (object?)dashboard ?? workout;
+        _workout = workout; _masterData = masterData; _history = history; _calendar = calendar; _dashboard = dashboard; _statistics = statistics; _settings = settings; _writeGate = writeGate; _weeklySchedule = weeklySchedule; _currentPage = (object?)dashboard ?? workout;
         if (_writeGate is not null) _writeGate.Changed += (_, _) => { OnPropertyChanged(nameof(IsMaintenanceActive)); OnPropertyChanged(nameof(MaintenanceMessage)); OnPropertyChanged(nameof(MaintenanceProgress)); };
         if (_masterData is not null) _masterData.WorkoutStarted += (_, _) => CurrentPage = _workout;
+        if (_calendar is not null) _calendar.WorkoutStarted += (_, _) => CurrentPage = _workout;
         if (_dashboard is not null) _dashboard.StartWorkoutRequested += (_, _) => CurrentPage = _workout;
+        if (_dashboard is not null) _dashboard.WeeklyScheduleRequested += async (_, _) => { if (_weeklySchedule is not null) { CurrentPage = _weeklySchedule; await _weeklySchedule.InitializeAsync(); } };
+        if (_weeklySchedule is not null) _weeklySchedule.WorkoutStarted += (_, _) => CurrentPage = _workout;
         _workout.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(ActiveWorkoutViewModel.IsActive)) OnPropertyChanged(nameof(HasActiveWorkout)); };
-        NavigateDashboardCommand = new AsyncRelayCommand(async () => { if (_dashboard is not null) { CurrentPage = _dashboard; await _dashboard.InitializeAsync(); } });
+        NavigateDashboardCommand = new AsyncRelayCommand(async () => { if (_dashboard is not null) { CurrentPage = _dashboard; await _dashboard.InitializeAsync(); await _dashboard.RefreshAsync(); } });
         NavigateWorkoutCommand = new RelayCommand(() => CurrentPage = _workout);
         NavigateHistoryCommand = new AsyncRelayCommand(async () => { if (_history is not null) { CurrentPage = _history; await _history.InitializeAsync(); } });
         NavigateMenuCommand = new AsyncRelayCommand(async () => { if (_masterData is not null) { CurrentPage = _masterData; await _masterData.InitializeAsync(); } });
         NavigateStatisticsCommand = new AsyncRelayCommand(async () => { if (_statistics is not null) { CurrentPage = _statistics; await _statistics.InitializeAsync(); } });
-        NavigateCalendarCommand = new AsyncRelayCommand(async () => { if (_calendar is not null) { CurrentPage = _calendar; await _calendar.InitializeAsync(); } });
+        NavigateCalendarCommand = new AsyncRelayCommand(async () => { if (_calendar is not null) { CurrentPage = _calendar; await _calendar.InitializeAsync(); await _calendar.ReloadAsync(); } });
         NavigateSettingsCommand = new AsyncRelayCommand(async () => { if (_settings is not null) { CurrentPage = _settings; await _settings.InitializeAsync(); } });
+        NavigateWeeklyScheduleCommand = new AsyncRelayCommand(async () => { if (_weeklySchedule is not null) { CurrentPage = _weeklySchedule; await _weeklySchedule.InitializeAsync(); } });
     }
     public object CurrentPage
     {
@@ -47,6 +52,7 @@ public sealed class ShellViewModel : ObservableObject
         StatisticsViewModel => "Statistics",
         CalendarViewModel => "Calendar",
         SettingsViewModel => "Settings",
+        WeeklyScheduleViewModel => "WeeklySchedule",
         _ => string.Empty
     };
     public bool HasActiveWorkout => _workout.IsActive;
@@ -60,6 +66,7 @@ public sealed class ShellViewModel : ObservableObject
     public ICommand NavigateStatisticsCommand { get; }
     public ICommand NavigateCalendarCommand { get; }
     public ICommand NavigateSettingsCommand { get; }
+    public ICommand NavigateWeeklyScheduleCommand { get; }
     public async Task InitializeAsync() { if (_initialized) return; await _workout.InitializeAsync(); if (_dashboard is not null) await _dashboard.InitializeAsync(); _initialized = true; OnPropertyChanged(nameof(HasActiveWorkout)); }
     public void ContinueActiveWorkout() => CurrentPage = _workout;
     public Task<bool> DiscardActiveWorkoutAsync() => _workout.DiscardAsync(true);

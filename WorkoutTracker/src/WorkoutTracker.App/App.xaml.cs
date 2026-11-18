@@ -22,10 +22,13 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
-        var databaseDirectory = Path.Combine(
+        var isolatedDatabasePath = Environment.GetEnvironmentVariable("WORKOUTTRACKER_TEST_DB_PATH");
+        if (isolatedDatabasePath is not null && !Path.IsPathFullyQualified(isolatedDatabasePath))
+            isolatedDatabasePath = null;
+        var databasePath = isolatedDatabasePath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WorkoutTracker");
-        var databasePath = Path.Combine(databaseDirectory, "workout-tracker.db");
+            "WorkoutTracker", "workout-tracker.db");
+        var databaseDirectory = Path.GetDirectoryName(databasePath)!;
 
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
@@ -38,6 +41,7 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<CalendarViewModel>();
                 services.AddSingleton<DashboardViewModel>();
                 services.AddSingleton<StatisticsViewModel>();
+                services.AddSingleton<WeeklyScheduleViewModel>();
                 services.AddSingleton<IApplicationStateReloader, WpfApplicationStateReloader>();
                 services.AddSingleton<ThemeService>();
                 services.AddSingleton<IUiExceptionReporter>(_ => new LocalFileUiExceptionReporter(Path.Combine(databaseDirectory, "Logs")));
@@ -53,6 +57,9 @@ public partial class App : System.Windows.Application
         {
             await _host.StartAsync();
             await _host.Services.GetRequiredService<IDatabaseInitializer>().InitializeFreshDatabaseAsync();
+            var catalogResult = await _host.Services.GetRequiredService<IStandardCatalogSeeder>().SeedAsync();
+            if (catalogResult.Conflicts.Count > 0)
+                MessageBox.Show("標準カタログの一部は既存データとのID・名称の競合により追加できませんでした。既存データは変更していません。\n\n" + string.Join("\n", catalogResult.Conflicts), "標準種目の競合", MessageBoxButton.OK, MessageBoxImage.Warning);
             await _host.Services.GetRequiredService<SettingsViewModel>().InitializeAsync();
             var shell = _host.Services.GetRequiredService<ShellViewModel>();
             await shell.InitializeAsync();

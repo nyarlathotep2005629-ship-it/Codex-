@@ -35,6 +35,22 @@ public sealed class HistoryCalendarViewModelTests
         Assert.False(vm.IsDrawerOpen); Assert.Same(selected, vm.SelectedItem); Assert.Equal(before, vm.Items); Assert.Equal(1, vm.PageNumber); Assert.Null(vm.SelectedExercise);
     }
 
+    [Fact(DisplayName = "HIS-013 completed workout date edit supports cancel and refreshes selected detail and history after save")]
+    public async Task CompletedWorkoutDateEditCancelAndSave()
+    {
+        var query = new FakeQuery(); var persistence = new RecordingDatePersistence(date => query.EditedWorkoutDate = date);
+        var editor = new ChangeCompletedWorkoutDateUseCase(persistence, new FixedClock(), new InlineExecutor());
+        var vm = new HistoryViewModel(new(query, new InlineExecutor()), dateEditor: editor);
+        await vm.InitializeAsync(); var item = vm.Items[0]; await vm.OpenDetailAsync(item);
+
+        vm.BeginWorkoutDateEdit(); vm.SelectedWorkoutDate = new DateTime(2026, 7, 4); vm.CancelWorkoutDateEdit();
+        Assert.Equal(new DateTime(2026, 8, 10), vm.SelectedWorkoutDate); Assert.Null(persistence.SavedDate); Assert.False(vm.IsEditingWorkoutDate);
+
+        vm.BeginWorkoutDateEdit(); vm.SelectedWorkoutDate = new DateTime(2026, 7, 4); await vm.SaveWorkoutDateAsync();
+        Assert.Equal(new DateOnly(2026, 7, 4), persistence.SavedDate); Assert.Equal(new DateOnly(2026, 7, 4), vm.SelectedDetail!.WorkoutDate);
+        Assert.Equal(new DateOnly(2026, 7, 4), vm.Items.Single(x => x.Id == item.Id).Item.WorkoutDate); Assert.False(vm.IsEditingWorkoutDate);
+    }
+
     [Fact(DisplayName = "CAL-003 day selection lists every Workout and empty day has explicit Empty State")]
     public async Task CalendarDaySelection()
     {
@@ -128,6 +144,7 @@ public sealed class HistoryCalendarViewModelTests
         private static readonly DateOnly Date = new(2026, 8, 10);
         private static readonly DateTimeOffset Completed = new(2026, 8, 10, 3, 0, 0, TimeSpan.Zero);
         public List<HistoryQuery> HistoryRequests { get; } = [];
+        public DateOnly? EditedWorkoutDate { get; set; }
         public Task<HistoryPage> GetHistoryPageAsync(HistoryQuery query, CancellationToken cancellationToken = default)
         {
             HistoryRequests.Add(query); if (query.Cursor is null) return Task.FromResult(new HistoryPage([Item(FirstId), Item(SecondId)], new(Date, Completed, SecondId))); return Task.FromResult(new HistoryPage([Item(ThirdId)], null));
@@ -138,8 +155,9 @@ public sealed class HistoryCalendarViewModelTests
         {
             var start = new DateOnly(year, month, 1); var days = Enumerable.Range(0, start.AddMonths(1).DayNumber - start.DayNumber).Select(i => { var date = start.AddDays(i); IReadOnlyList<CalendarWorkoutSummaryDto> workouts = date.Day == 10 ? [new(FirstId, "A", "Menu", ["Chest"], 500m, 1), new(SecondId, "B", null, ["Back"], 600m, 2)] : []; return new CalendarDayDto(date, workouts); }).ToList(); return Task.FromResult(new CalendarMonthDto(year, month, days));
         }
-        private static WorkoutHistoryItem Item(Guid id) => new(id, Date, Completed, "Workout", null, null, 500m, 1, 1);
-        private static WorkoutDetailDto Detail(Guid id) { var set = new WorkoutDetailSetDto(Guid.NewGuid(), 1, 50m, 10, 8m); var exercise = new WorkoutDetailExerciseDto(Guid.NewGuid(), Guid.NewGuid(), "Bench", Guid.NewGuid(), "Chest", 0, null, [set]); return new(id, Date, Completed, "Workout", null, null, [exercise]); }
+        private DateOnly CurrentDate => EditedWorkoutDate ?? Date;
+        private WorkoutHistoryItem Item(Guid id) => new(id, CurrentDate, Completed, "Workout", null, null, 500m, 1, 1);
+        private WorkoutDetailDto Detail(Guid id) { var set = new WorkoutDetailSetDto(Guid.NewGuid(), 1, 50m, 10, 8m); var exercise = new WorkoutDetailExerciseDto(Guid.NewGuid(), Guid.NewGuid(), "Bench", Guid.NewGuid(), "Chest", 0, null, [set]); return new(id, CurrentDate, Completed, "Workout", null, null, [exercise]); }
     }
     private sealed class DelayedCalendarQuery : IHistoryCalendarQuery
     {
@@ -174,5 +192,15 @@ public sealed class HistoryCalendarViewModelTests
     {
         public List<(Exception Exception, string Operation)> Errors { get; } = [];
         public void Report(Exception exception, string operation) => Errors.Add((exception, operation));
+    }
+
+    private sealed class FixedClock : IClock { public DateTimeOffset UtcNow => new(2026, 11, 2, 0, 0, 0, TimeSpan.Zero); }
+    private sealed class RecordingDatePersistence(Action<DateOnly> onSave) : ICompletedWorkoutDatePersistence
+    {
+        public DateOnly? SavedDate { get; private set; }
+        public Task<bool> ChangeDateAsync(Guid sessionId, DateOnly workoutDate, DateTimeOffset now, CancellationToken cancellationToken = default)
+        {
+            SavedDate = workoutDate; onSave(workoutDate); return Task.FromResult(true);
+        }
     }
 }

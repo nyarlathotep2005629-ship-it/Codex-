@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using WorkoutTracker.Application;
 
 namespace WorkoutTracker.Infrastructure.Persistence;
@@ -7,19 +8,19 @@ internal sealed class RestoreInfrastructure(
     DatabaseLocation location,
     IRestoreFailureInjector failureInjector) : IRestoreInfrastructure
 {
-    internal const int CurrentSchemaVersion = 1;
-    internal const string CurrentMigrationId = "20260822055429_InitialCreate";
+    internal const int CurrentSchemaVersion = 2;
+    internal static readonly string[] CurrentMigrationIds = ["20260822055429_InitialCreate", "20261103000000_WeeklySchedule"];
     private static readonly string[] RequiredTables =
     [
         "AppSettings", "MuscleGroups", "Exercises", "ExerciseSecondaryMuscles", "WorkoutMenus",
-        "MenuExercises", "WorkoutSessions", "WorkoutExercises", "WorkoutSets", "__EFMigrationsHistory"
+        "MenuExercises", "WorkoutSessions", "WorkoutExercises", "WorkoutSets", "WeeklyScheduleRules", "__EFMigrationsHistory"
     ];
 
     public Task<DatabaseValidationResult> ValidateCandidateAsync(string selectedBackupPath, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectedBackupPath);
         failureInjector.ThrowIfRequested(RestoreFailurePoint.ReadSelectedBackup);
-        return Task.Run(() => ValidateDatabaseAsync(Path.GetFullPath(selectedBackupPath), requireForeignKeys: false, cancellationToken), cancellationToken);
+        return Task.Run(() => ValidateDatabaseAsync(Path.GetFullPath(selectedBackupPath), requireForeignKeys: false, cancellationToken, allowLegacy: true), cancellationToken);
     }
 
     public async Task<RestoreWorkFiles> PrepareAsync(string selectedBackupPath, Guid operationId, CancellationToken cancellationToken)
@@ -49,6 +50,13 @@ internal sealed class RestoreInfrastructure(
 
             failureInjector.ThrowIfRequested(RestoreFailurePoint.CreateStagedDatabase);
             await BackupDatabaseAsync(files.SelectedBackupPath, files.StagedPath, cancellationToken);
+            var stagedValidation = await ValidateDatabaseAsync(files.StagedPath, requireForeignKeys: false, cancellationToken, allowLegacy: true);
+            if (stagedValidation.SchemaVersion == 1)
+            {
+                var options = new DbContextOptionsBuilder<WorkoutTrackerDbContext>().UseSqlite(CreateConnectionString(files.StagedPath, SqliteOpenMode.ReadWrite)).Options;
+                await using var stagedContext = new WorkoutTrackerDbContext(options);
+                await stagedContext.Database.MigrateAsync(cancellationToken);
+            }
             await ValidateDatabaseAsync(files.StagedPath, requireForeignKeys: false, cancellationToken);
             await FinalizeStandaloneDatabaseAsync(files.StagedPath, cancellationToken);
             return files;
@@ -161,7 +169,7 @@ internal sealed class RestoreInfrastructure(
         DeleteIfExists(path + "-wal"); DeleteIfExists(path + "-shm");
     }
 
-    private static async Task<DatabaseValidationResult> ValidateDatabaseAsync(string path, bool requireForeignKeys, CancellationToken cancellationToken)
+    private static async Task<DatabaseValidationResult> ValidateDatabaseAsync(string path, bool requireForeignKeys, CancellationToken cancellationToken, bool allowLegacy = false)
     {
         await EnsureHeaderAsync(path, cancellationToken);
         await using var connection = CreateConnection(path, SqliteOpenMode.ReadOnly);
@@ -175,8 +183,8 @@ internal sealed class RestoreInfrastructure(
                 throw new InvalidOperationException("SQLite quick_check failed.");
         }
         var version = checked((int)await ScalarLongAsync(connection, "PRAGMA user_version;", cancellationToken));
-        if (version != CurrentSchemaVersion) throw new InvalidOperationException($"Unsupported schema version: {version}.");
-        foreach (var table in RequiredTables)
+        if (version != CurrentSchemaVersion && !(allowLegacy && version == 1)) throw new InvalidOperationException($"Unsupported schema version: {version}.");
+        foreach (var table in version == 1 ? RequiredTables.Where(x => x != "WeeklyScheduleRules") : RequiredTables)
         {
             await using var tableCommand = connection.CreateCommand();
             tableCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name;";
@@ -191,7 +199,7 @@ internal sealed class RestoreInfrastructure(
             await using var reader = await history.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken)) migrations.Add(reader.GetString(0));
         }
-        if (migrations.Count != 1 || migrations[0] != CurrentMigrationId)
+        if (!migrations.SequenceEqual(version == 1 ? CurrentMigrationIds.Take(1) : CurrentMigrationIds))
             throw new InvalidOperationException("EF Migration history is incompatible with this application version.");
         var counts = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var table in new[] { "MuscleGroups", "Exercises", "WorkoutMenus", "WorkoutSessions", "WorkoutExercises", "WorkoutSets" })
@@ -214,10 +222,11 @@ internal sealed class RestoreInfrastructure(
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    private static SqliteConnection CreateConnection(string path, SqliteOpenMode mode) => new(new SqliteConnectionStringBuilder
+    private static string CreateConnectionString(string path, SqliteOpenMode mode) => new SqliteConnectionStringBuilder
     {
         DataSource = Path.GetFullPath(path), Mode = mode, ForeignKeys = true, Pooling = false, DefaultTimeout = 30
-    }.ToString());
+    }.ToString();
+    private static SqliteConnection CreateConnection(string path, SqliteOpenMode mode) => new(CreateConnectionString(path, mode));
 
     private static void EnsureSameVolume(string current, string staged)
     {

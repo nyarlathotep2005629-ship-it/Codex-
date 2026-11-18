@@ -5,5 +5,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:WorkoutTracker.Mobile"
     Title="Workout Tracker"
-    BackgroundColor="#121212"
-    ForegroundColor="White" />
+    BackgroundColor="#0C1418"
+    ForegroundColor="White"
+    TitleColor="White"
+    TabBarBackgroundColor="#172329"
+    TabBarForegroundColor="#21DCC9"
+    TabBarTitleColor="#21DCC9"
+    TabBarUnselectedColor="#B7C9CC" />

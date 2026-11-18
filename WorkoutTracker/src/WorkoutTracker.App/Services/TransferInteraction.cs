@@ -26,12 +26,21 @@ public sealed class TransferInteraction : ITransferInteraction
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
-    public bool ConfirmImport(ImportPlan plan) => MessageBox.Show(
-        $"転送ファイルを検証しました。\n\n追加: {plan.NewItems.Count}\n変更なし: {plan.UnchangedItems.Count}\n競合: {plan.Conflicts.Count}\n\n競合解決後にインポートを実行します。続行しますか？",
-        "Workout Trackerデータのインポート確認", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes;
+    public bool ConfirmImport(ImportPlan plan)
+    {
+        var identityConflicts = plan.Conflicts.Where(x => x.Reason.Contains("自動対応できません", StringComparison.Ordinal)).ToArray();
+        if (identityConflicts.Length > 0)
+        {
+            MessageBox.Show("IDと名称の衝突があるため、自動インポートを中止します。元データを維持したまま確認してください。\n\n" + string.Join("\n", identityConflicts.Select(x => $"{x.Label}: {x.Reason}")), "Workout Trackerデータの競合", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        return MessageBox.Show(
+            $"転送ファイルを検証しました。\n\n追加: {plan.NewItems.Count}\n変更なし: {plan.UnchangedItems.Count}\n競合: {plan.Conflicts.Count}\n\n競合解決後にインポートを実行します。続行しますか？",
+            "Workout Trackerデータのインポート確認", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes;
+    }
 
     public bool? ResolveConflict(TransferConflict conflict) => MessageBox.Show(
-        $"競合を検出しました。\n\n種別: {conflict.Kind}\n対象: {conflict.Label}\n\n[はい] インポート版を使用\n[いいえ] ローカルを保持\n[キャンセル] インポート中止",
+        $"競合を検出しました。\n\n種別: {conflict.Kind}\n対象: {conflict.Label}\n理由: {conflict.Reason}\n\n[はい] インポート版を使用\n[いいえ] ローカルを保持\n[キャンセル] インポート中止",
         "Workout Trackerデータの競合", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning) switch
     {
         MessageBoxResult.Yes => true,

@@ -61,7 +61,7 @@ public sealed class ThemeTests
                     Assert.Equal(ScottPlotColor(app, "SurfaceBrush"), plot.FigureBackground.Color.ToHex());
 
                     service.Apply(ThemeMode.Dark);
-                    Assert.Equal(Color.FromRgb(0x08, 0x13, 0x20), ((SolidColorBrush)app.Resources["AppBackgroundBrush"]).Color);
+                    Assert.Equal(Color.FromRgb(0x0C, 0x14, 0x18), ((SolidColorBrush)app.Resources["AppBackgroundBrush"]).Color);
                     AssertEffectiveResources(app, ThemeMode.Dark);
                     AssertSelectorTemplate(app);
 #pragma warning disable WPF0001

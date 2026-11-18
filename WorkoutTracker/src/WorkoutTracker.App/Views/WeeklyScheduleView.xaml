@@ -1,0 +1,60 @@
+<UserControl x:Class="WorkoutTracker.App.Views.WeeklyScheduleView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="{StaticResource PagePadding}">
+            <TextBlock Text="週間メニュー" Style="{StaticResource PageTitleStyle}"/>
+            <TextBlock Text="予定は記録と別に保存されます。基本メニューは毎週繰り返し、日付・週の変更は他の週に影響しません。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="基本の月曜〜日曜" Style="{StaticResource SectionTitleStyle}"/>
+                    <ItemsControl ItemsSource="{Binding BaseRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding DayLabel}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                    <ComboBox Grid.Column="1" ItemsSource="{Binding DataContext.Choices, RelativeSource={RelativeSource AncestorType=UserControl}}" SelectedItem="{Binding SelectedChoice, Mode=TwoWay}" DisplayMemberPath="Label" MinWidth="240"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Content="基本メニューを保存" Command="{Binding SaveBaseCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="指定した日・週の予定" Style="{StaticResource SectionTitleStyle}"/>
+                    <WrapPanel Margin="0,0,0,12">
+                        <StackPanel Margin="0,0,12,0"><TextBlock Text="対象日" Style="{StaticResource CaptionTextStyle}"/><DatePicker SelectedDate="{Binding SelectedDate}" Width="160"/></StackPanel>
+                        <Button Content="予定を表示" Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Bottom"/>
+                    </WrapPanel>
+                    <ItemsControl ItemsSource="{Binding WeekRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3" Background="{DynamicResource SurfaceAltBrush}">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="95"/><ColumnDefinition Width="*"/><ColumnDefinition Width="95"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding DateLabel}" Padding="8,7"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding PlanLabel}" Padding="8,7" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding PlannedSetCount, StringFormat={}{0}セット}" Padding="4,7"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding SourceLabel}" Padding="4,7" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="対象日の変更内容" Style="{StaticResource CardTitleStyle}" Margin="0,16,0,4"/>
+                    <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice, Mode=TwoWay}" DisplayMemberPath="Label" MinWidth="240" HorizontalAlignment="Left"/>
+                    <WrapPanel Margin="0,12,0,0">
+                        <Button Content="この日だけ変更" Command="{Binding ApplyDateCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,8"/>
+                        <Button Content="この週の同じ曜日を変更" Command="{Binding ApplyWeekCommand}" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,8"/>
+                        <Button Content="日付変更を解除" Command="{Binding ClearDateCommand}" Style="{StaticResource QuietButtonStyle}" Margin="0,0,8,8"/>
+                        <Button Content="週変更を解除" Command="{Binding ClearWeekCommand}" Style="{StaticResource QuietButtonStyle}" Margin="0,0,8,8"/>
+                    </WrapPanel>
+                    <Button Content="対象日の予定メニューから記録開始" Command="{Binding StartPlannedCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -8,11 +8,11 @@ namespace WorkoutTracker.Mobile;
 
 internal abstract class MobilePageBase : ContentPage
 {
-    protected static readonly Color PageBackground = Color.FromArgb("#121212");
-    protected static readonly Color Surface = Color.FromArgb("#1E1E1E");
+    protected static readonly Color PageBackground = Color.FromArgb("#0C1418");
+    protected static readonly Color Surface = Color.FromArgb("#172329");
     protected static readonly Color Primary = Color.FromArgb("#FFFFFF");
-    protected static readonly Color Secondary = Color.FromArgb("#BDBDBD");
-    protected static readonly Color Accent = Color.FromArgb("#80CBC4");
+    protected static readonly Color Secondary = Color.FromArgb("#B7C9CC");
+    protected static readonly Color Accent = Color.FromArgb("#21DCC9");
 
     protected static Button Action(string text, EventHandler clicked, bool primary = false)
     {
@@ -20,7 +20,7 @@ internal abstract class MobilePageBase : ContentPage
         {
             Text = text,
             MinimumHeightRequest = 48,
-            BackgroundColor = primary ? Accent : Color.FromArgb("#303030"),
+            BackgroundColor = primary ? Accent : Color.FromArgb("#26363D"),
             TextColor = primary ? Color.FromArgb("#10201E") : Primary,
             FontAttributes = FontAttributes.Bold
         };
@@ -49,7 +49,8 @@ internal abstract class MobilePageBase : ContentPage
     {
         BackgroundColor = Surface,
         Padding = 16,
-        StrokeThickness = 0,
+        Stroke = Color.FromArgb("#30434A"),
+        StrokeThickness = 1,
         StrokeShape = new RoundRectangle { CornerRadius = 12 },
         Content = content
     };
@@ -60,6 +61,7 @@ internal sealed class HomePage : MobilePageBase
     private readonly MobileWorkoutController _workouts;
     private bool _refreshing;
     private DashboardDto? _dashboard;
+    private PlannedDayDto? _todayPlan;
 
     public HomePage(MobileWorkoutController workouts)
     {
@@ -84,6 +86,7 @@ internal sealed class HomePage : MobilePageBase
         {
             await _workouts.RefreshHomeAsync();
             _dashboard = await _workouts.GetDashboardAsync(DashboardPeriod.ThreeMonths, DateOnly.FromDateTime(DateTime.Today), []);
+            _todayPlan = (await _workouts.GetPlannedWeekAsync(DateOnly.FromDateTime(DateTime.Today))).Single(x => x.Date == DateOnly.FromDateTime(DateTime.Today));
             Render();
         }
         catch { Content = ErrorContent("ローカルデータベースを起動できませんでした。再起動して再試行してください。"); }
@@ -95,8 +98,29 @@ internal sealed class HomePage : MobilePageBase
         var stack = new VerticalStackLayout { Padding = 20, Spacing = 14 };
         stack.Children.Add(Text("ホーム", 28, bold: true));
         stack.Children.Add(Text("この端末内に保存されます。ネットワーク接続は必要ありません。", 14, Secondary));
+        if (_workouts.CatalogConflicts.Count > 0)
+            stack.Children.Add(Card(Text("標準種目のID・名称の競合により一部を追加できませんでした。既存データは維持しています。\n" + string.Join("\n", _workouts.CatalogConflicts), 14, Color.FromArgb("#FFCC80"))));
         stack.Children.Add(Action("ワークアウトを開始", OnStartClicked, primary: true));
         stack.Children.Add(Action("統計を開く", async (_, _) => await Shell.Current.GoToAsync("//statistics")));
+        if (_todayPlan is not null)
+        {
+            var plan = _todayPlan;
+            var planned = new VerticalStackLayout { Spacing = 8 };
+            planned.Children.Add(Text("今日の予定", 18, bold: true));
+            planned.Children.Add(Text(plan.IsRest ? "休息日" : plan.MenuName ?? "未設定", 18, Accent, true));
+            if (plan.MenuId is not null && !plan.IsRest)
+            {
+                planned.Children.Add(Text($"予定 {plan.PlannedSetCount} セット", 13, Secondary));
+                planned.Children.Add(Action("予定から記録開始", async (_, _) =>
+                {
+                    if (_workouts.HasActiveWorkout) { await Shell.Current.GoToAsync("//workout"); return; }
+                    await _workouts.StartOnDateAsync(plan.MenuId, plan.Date);
+                    await Shell.Current.GoToAsync("//workout");
+                }, primary: true));
+            }
+            planned.Children.Add(Action("週間メニューを確認", async (_, _) => await Navigation.PushAsync(new WeeklySchedulePage(_workouts))));
+            stack.Children.Add(Card(planned));
+        }
         if (_workouts.HasActiveWorkout)
         {
             stack.Children.Add(Card(new VerticalStackLayout
@@ -281,11 +305,30 @@ internal sealed class WorkoutPage : MobilePageBase
         stack.Children.Add(Text(exercise.ExerciseName, 20, bold: true));
         var previous = exercise.PreviousPerformance?.Sets.FirstOrDefault();
         stack.Children.Add(Text(previous is null ? "前回の記録: なし" : $"前回の記録: {previous.WeightKg:0.##} kg × {previous.Reps}", 13, Secondary));
+        var header = new Grid { ColumnSpacing = 8 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        header.Add(Text("セット", 12, Secondary, true), 0, 0);
+        header.Add(Text("重量 kg", 12, Secondary, true), 1, 0);
+        header.Add(Text("回数", 12, Secondary, true), 2, 0);
+        var rpeHeader = new HorizontalStackLayout { Spacing = 3, VerticalOptions = LayoutOptions.Center };
+        rpeHeader.Children.Add(Text("RPE", 12, Secondary, true));
+        var rpeHelp = Action("ⓘ", OnShowRpeExplanation);
+        rpeHelp.WidthRequest = 48;
+        SemanticProperties.SetDescription(rpeHelp, "RPEとRIRの説明を表示");
+        rpeHeader.Children.Add(rpeHelp);
+        header.Add(rpeHeader, 3, 0);
+        stack.Children.Add(header);
         foreach (var set in exercise.Sets)
             stack.Children.Add(BuildSetRow(set));
         stack.Children.Add(Action("セットを追加", (_, _) => { _workouts.AddSet(exercise.WorkoutExerciseId); Render(); }));
         return Card(stack);
     }
+
+    private async void OnShowRpeExplanation(object? sender, EventArgs e) =>
+        await DisplayAlertAsync("RPEとRIRの目安", WorkoutMetricExplanations.Rpe, "閉じる");
 
     private View BuildSetRow(ActiveWorkoutSetDto set)
     {
@@ -345,12 +388,11 @@ internal sealed class WorkoutPage : MobilePageBase
                 return;
             }
 
-            var labels = exercises.Select(x => x.Name).ToArray();
-            var selected = await DisplayActionSheetAsync("追加する種目を選ぶ", "キャンセル", null, labels);
-            var index = Array.IndexOf(labels, selected);
-            if (index < 0) return;
-            await _workouts.AddExerciseToActiveWorkoutAsync(exercises[index].Id);
-            Render();
+            await Navigation.PushAsync(new WorkoutExercisePickerPage(exercises, async id =>
+            {
+                await _workouts.AddExerciseToActiveWorkoutAsync(id);
+                Render();
+            }));
         }
         catch { _error?.Text = "種目を追加できませんでした。"; }
     }
@@ -632,6 +674,71 @@ internal sealed class WorkoutDetailPage : MobilePageBase
 
         var stack = new VerticalStackLayout { Padding = 20, Spacing = 14 };
         stack.Children.Add(Text("記録の詳細", 28, bold: true));
+        var metricHelp = new Grid { ColumnSpacing = 8 };
+        metricHelp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        metricHelp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Star });
+        var rmHelp = Action("RM・1RM", OnShowEstimatedOneRepMaxExplanation);
+        SemanticProperties.SetDescription(rmHelp, "RMと推定1RMの説明を表示");
+        var rpeHelp = Action("RPE", OnShowRpeExplanation);
+        SemanticProperties.SetDescription(rpeHelp, "RPEとRIRの説明を表示");
+        metricHelp.Add(rmHelp, 0, 0);
+        metricHelp.Add(rpeHelp, 1, 0);
+        stack.Children.Add(metricHelp);
+        var workoutDate = new DatePicker
+        {
+            Date = workout.WorkoutDate.ToDateTime(TimeOnly.MinValue),
+            MinimumDate = new DateTime(1900, 1, 1),
+            MaximumDate = DateTime.Today,
+            TextColor = Primary,
+            BackgroundColor = Color.FromArgb("#303030")
+        };
+        var dateStatus = Text(string.Empty, 13, Color.FromArgb("#EF9A9A"));
+        Button saveDate = null!;
+        saveDate = Action("実施日を保存", async (_, _) =>
+        {
+            saveDate.IsEnabled = false;
+            dateStatus.Text = string.Empty;
+            try
+            {
+                if (workoutDate.Date is not DateTime selectedDate || !await _workouts.ChangeCompletedWorkoutDateAsync(_sessionId, DateOnly.FromDateTime(selectedDate)))
+                {
+                    dateStatus.Text = "対象の完了記録が見つかりません。履歴を再表示してください。";
+                    saveDate.IsEnabled = true;
+                    return;
+                }
+
+                var refreshed = await _workouts.GetWorkoutDetailAsync(_sessionId);
+                if (refreshed is null)
+                {
+                    dateStatus.Text = "日付は保存されましたが、詳細を再読み込みできません。履歴から再度開いてください。";
+                    saveDate.IsEnabled = true;
+                    return;
+                }
+                Render(refreshed);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                dateStatus.Text = "実施日は1900年1月1日から今日までの日付を選択してください。";
+                saveDate.IsEnabled = true;
+            }
+            catch
+            {
+                dateStatus.Text = "実施日の保存または画面更新に失敗しました。履歴から再読み込みしてください。";
+                saveDate.IsEnabled = true;
+            }
+        }, primary: true);
+        var cancelDate = Action("キャンセル", (_, _) => Render(workout));
+        stack.Children.Add(Card(new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                Text("実施日", 15, bold: true),
+                workoutDate,
+                new HorizontalStackLayout { Spacing = 8, Children = { saveDate, cancelDate } },
+                dateStatus
+            }
+        }));
         stack.Children.Add(Card(new VerticalStackLayout
         {
             Spacing = 5,
@@ -646,6 +753,12 @@ internal sealed class WorkoutDetailPage : MobilePageBase
         foreach (var exercise in workout.Exercises.OrderBy(x => x.DisplayOrder)) stack.Children.Add(BuildExercise(exercise));
         Content = new ScrollView { Content = stack };
     }
+
+    private async void OnShowEstimatedOneRepMaxExplanation(object? sender, EventArgs e) =>
+        await DisplayAlertAsync("RM・推定1RMの計算根拠", WorkoutMetricExplanations.EstimatedOneRepMax, "閉じる");
+
+    private async void OnShowRpeExplanation(object? sender, EventArgs e) =>
+        await DisplayAlertAsync("RPEとRIRの目安", WorkoutMetricExplanations.Rpe, "閉じる");
 
     private static View BuildExercise(WorkoutDetailExerciseDto exercise)
     {
@@ -681,6 +794,7 @@ internal sealed class MorePage : MobilePageBase
                 Text("その他", 28, bold: true),
                 Text("履歴の月表示はここから開けます。", 14, Secondary),
                 Action("トレーニングデータ", async (_, _) => await Navigation.PushAsync(new TrainingDataPage(_workouts)), primary: true),
+                Action("週間メニュー", async (_, _) => await Navigation.PushAsync(new WeeklySchedulePage(_workouts))),
                 Action("カレンダーを開く", async (_, _) => await Navigation.PushAsync(new CalendarPage(_workouts))),
                 Action("データ", async (_, _) => await Navigation.PushAsync(new TransferPage(_workouts)))
             }
@@ -741,12 +855,19 @@ internal sealed class TransferPage : MobilePageBase
         {
             var plan = await _workouts.PickImportPlanAsync();
             if (plan is null) return;
+            var identityConflicts = plan.Conflicts.Where(x => x.Reason.Contains("自動対応できません", StringComparison.Ordinal)).ToArray();
+            if (identityConflicts.Length > 0)
+            {
+                _status!.Text = "IDと名称の衝突があるため自動インポートを中止しました。元データは変更していません。";
+                await DisplayAlertAsync("転送の競合", string.Join("\n", identityConflicts.Select(x => $"{x.Label}: {x.Reason}")), "OK");
+                return;
+            }
             var confirmed = await DisplayAlertAsync("インポート確認", $"転送ファイルを検証しました。\n\n追加: {plan.NewItems.Count}\n変更なし: {plan.UnchangedItems.Count}\n競合: {plan.Conflicts.Count}\n\n競合解決後にインポートを実行します。続行しますか？", "続行", "キャンセル");
             if (!confirmed) return;
             var resolutions = new List<ImportResolution>();
             foreach (var conflict in plan.Conflicts)
             {
-                var useImport = await DisplayAlertAsync("競合を検出しました", $"{conflict.Label}\n\nインポート版を使用しますか？", "インポート版", "ローカル保持");
+                var useImport = await DisplayAlertAsync("競合を検出しました", $"{conflict.Label}\n{conflict.Reason}\n\nインポート版を使用しますか？", "インポート版", "ローカル保持");
                 resolutions.Add(new(conflict.Kind, conflict.Id, useImport));
             }
             var result = await _workouts.ImportTransferAsync(plan, resolutions);
@@ -761,6 +882,7 @@ internal sealed class CalendarPage : MobilePageBase
     private readonly MobileWorkoutController _workouts;
     private DateOnly _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private CalendarMonthDto? _calendar;
+    private IReadOnlyDictionary<DateOnly, PlannedDayDto> _plans = new Dictionary<DateOnly, PlannedDayDto>();
     private DateOnly? _selectedDate;
     private bool _loading;
 
@@ -782,8 +904,14 @@ internal sealed class CalendarPage : MobilePageBase
         if (_loading) return;
         _loading = true;
         Render();
-        try { _calendar = await _workouts.GetCalendarMonthAsync(_month.Year, _month.Month); }
-        catch { _calendar = null; }
+        try
+        {
+            _calendar = await _workouts.GetCalendarMonthAsync(_month.Year, _month.Month);
+            var mondays = _calendar.Days.Select(x => x.Date.AddDays(-(((int)x.Date.DayOfWeek + 6) % 7))).Distinct().ToArray();
+            var planned = await Task.WhenAll(mondays.Select(x => _workouts.GetPlannedWeekAsync(x)));
+            _plans = planned.SelectMany(x => x).ToDictionary(x => x.Date);
+        }
+        catch { _calendar = null; _plans = new Dictionary<DateOnly, PlannedDayDto>(); }
         finally { _loading = false; Render(); }
     }
 
@@ -834,7 +962,7 @@ internal sealed class CalendarPage : MobilePageBase
             var isToday = day.Date == DateOnly.FromDateTime(DateTime.Today);
             var button = new Button
             {
-                Text = day.HasWorkouts ? $"{day.Date.Day}\n● {day.WorkoutCount}" : day.Date.Day.ToString(),
+                Text = day.HasWorkouts ? $"{day.Date.Day}\n● {day.WorkoutCount}" : _plans.TryGetValue(day.Date, out var planned) && planned.MenuId is not null ? $"{day.Date.Day}\n予定" : day.Date.Day.ToString(),
                 MinimumHeightRequest = 48,
                 FontSize = 13,
                 Padding = new Thickness(1),
@@ -853,6 +981,17 @@ internal sealed class CalendarPage : MobilePageBase
         if (day is null) return Card(Text("日付を選択すると、その日のワークアウトを表示します。", 14, Secondary));
         var stack = new VerticalStackLayout { Spacing = 8 };
         stack.Children.Add(Text($"{day.Date:yyyy年M月d日}", 18, bold: true));
+        if (_plans.TryGetValue(day.Date, out var plan))
+        {
+            stack.Children.Add(Text($"予定: {(plan.IsRest ? "休息日" : plan.MenuName ?? "未設定")}", 14, Accent));
+            if (plan.MenuId is not null && day.Date <= DateOnly.FromDateTime(DateTime.Today))
+                stack.Children.Add(Action("予定メニューから記録開始", async (_, _) =>
+                {
+                    if (_workouts.HasActiveWorkout) { await Shell.Current.GoToAsync("//workout"); return; }
+                    await _workouts.StartOnDateAsync(plan.MenuId, day.Date);
+                    await Shell.Current.GoToAsync("//workout");
+                }));
+        }
         if (!day.HasWorkouts) stack.Children.Add(Text("この日のワークアウトはありません。", 14, Secondary));
         foreach (var workout in day.Workouts)
         {

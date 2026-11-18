@@ -28,7 +28,7 @@ public sealed class SettingsBackupTests
 
         Assert.Matches(@"WorkoutTracker_Backup_\d{8}_\d{6}(_\d{2})?\.db$", result.BackupPath);
         Assert.True(File.Exists(result.BackupPath));
-        Assert.True(result.QuickCheckPassed); Assert.Equal(1, result.SchemaVersion);
+        Assert.True(result.QuickCheckPassed); Assert.Equal(2, result.SchemaVersion);
         Assert.Contains("__EFMigrationsHistory", result.RequiredTables);
         await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = result.BackupPath, Mode = SqliteOpenMode.ReadOnly }.ToString());
         await connection.OpenAsync();

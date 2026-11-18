@@ -12,7 +12,7 @@ public sealed class WorkoutVerticalSliceTests
     public async Task Db010FreshStartup()
     {
         await using var f = new DatabaseTestFixture(); await f.Initializer.InitializeFreshDatabaseAsync();
-        await using var db = await f.Factory.CreateDbContextAsync(); Assert.Single(await db.Database.GetAppliedMigrationsAsync()); Assert.True(await db.WorkoutSessions.CountAsync() == 0);
+        await using var db = await f.Factory.CreateDbContextAsync(); Assert.Equal(2, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.True(await db.WorkoutSessions.CountAsync() == 0);
     }
 
     [Fact(DisplayName = "APP-008 and APP-009 Menu expands in order with DefaultSetCount")]

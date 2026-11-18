@@ -22,6 +22,8 @@ public sealed class DashboardViewModel : ObservableObject
 {
     private readonly AnalyticsService _service;
     private readonly IUiExceptionReporter _errors;
+    private readonly IWeeklyScheduleService? _schedule;
+    private readonly ActiveWorkoutViewModel? _workout;
     private CancellationTokenSource? _queryCancellation;
     private long _operationId;
     private DashboardPeriod _selectedPeriod = DashboardPeriod.ThreeMonths;
@@ -30,11 +32,15 @@ public sealed class DashboardViewModel : ObservableObject
     private bool _initialized;
     private bool _suppressSelection;
     private string? _errorMessage;
+    private PlannedDayDto? _todayPlan;
+    private string? _planStatus;
 
-    public DashboardViewModel(AnalyticsService service, IUiExceptionReporter? errors = null)
+    public DashboardViewModel(AnalyticsService service, IUiExceptionReporter? errors = null, IWeeklyScheduleService? schedule = null, ActiveWorkoutViewModel? workout = null)
     {
-        _service = service; _errors = errors ?? NullUiExceptionReporter.Instance; RetryCommand = new AsyncRelayCommand(RefreshAsync);
+        _service = service; _errors = errors ?? NullUiExceptionReporter.Instance; _schedule = schedule; _workout = workout; RetryCommand = new AsyncRelayCommand(RefreshAsync);
         StartWorkoutCommand = new RelayCommand(() => StartWorkoutRequested?.Invoke(this, EventArgs.Empty));
+        StartPlannedCommand = new AsyncRelayCommand(StartPlannedAsync);
+        OpenWeeklyScheduleCommand = new RelayCommand(() => WeeklyScheduleRequested?.Invoke(this, EventArgs.Empty));
     }
 
     public ObservableCollection<DashboardExerciseOptionViewModel> ExerciseOptions { get; } = [];
@@ -50,6 +56,11 @@ public sealed class DashboardViewModel : ObservableObject
     public IReadOnlyList<VolumeSeriesDto> VolumeByWeek => Data?.VolumeByWeek ?? [];
     public IReadOnlyList<MuscleVolumeDto> MuscleVolumes => Data?.MuscleVolumes ?? [];
     public IReadOnlyList<RecentWorkoutDto> RecentWorkouts => Data?.RecentWorkouts ?? [];
+    public ObservableCollection<string> WeekPlans { get; } = [];
+    public string TodayPlanLabel => _todayPlan is null ? "読み込み中" : _todayPlan.IsRest ? "休息日" : _todayPlan.MenuName ?? "未設定";
+    public string TodayPlanDetail => _todayPlan is null ? string.Empty : _todayPlan.MenuId is null ? "週間メニューで予定を設定できます。" : $"予定セット: {_todayPlan.PlannedSetCount}";
+    public bool CanStartPlanned => _todayPlan?.MenuId is not null && _todayPlan.IsRest == false;
+    public string? PlanStatus { get => _planStatus; private set => SetProperty(ref _planStatus, value); }
     public IReadOnlyList<ChartSeriesDto> OneRepMaxSeries => Data?.OneRepMaxSeries ?? [];
     public string PeriodLabel => Data is null ? string.Empty : $"{Data.Range.Start:yyyy/MM/dd} – {Data.Range.EndExclusive.AddDays(-1):yyyy/MM/dd}";
     public bool IsLoading { get => _isLoading; private set { if (SetProperty(ref _isLoading, value)) RaiseState(); } }
@@ -58,7 +69,10 @@ public sealed class DashboardViewModel : ObservableObject
     public string PageState => IsLoading ? "Loading" : ErrorMessage is not null ? "Error" : IsEmpty ? "Empty" : "Loaded";
     public ICommand RetryCommand { get; }
     public ICommand StartWorkoutCommand { get; }
+    public ICommand StartPlannedCommand { get; }
+    public ICommand OpenWeeklyScheduleCommand { get; }
     public event EventHandler? StartWorkoutRequested;
+    public event EventHandler? WeeklyScheduleRequested;
 
     public async Task InitializeAsync()
     {
@@ -109,11 +123,34 @@ public sealed class DashboardViewModel : ObservableObject
             var selected = ExerciseOptions.Where(x => x.IsSelected).Select(x => x.Id).ToList();
             if (saveSettings) await _service.SaveDashboardSettingsAsync(SelectedPeriod, selected, cts.Token);
             var result = await _service.GetDashboardAsync(SelectedPeriod, DateOnly.FromDateTime(DateTime.Today), selected, cts.Token);
-            if (operation == _operationId) Data = result;
+            IReadOnlyList<PlannedDayDto>? plans = _schedule is null ? null : await _schedule.GetWeekAsync(DateOnly.FromDateTime(DateTime.Today), cts.Token);
+            if (operation == _operationId)
+            {
+                Data = result;
+                if (plans is not null)
+                {
+                    WeekPlans.Clear(); foreach (var plan in plans) WeekPlans.Add($"{plan.Date:MM/dd}  {(plan.IsRest ? "休息日" : plan.MenuName ?? "未設定")}");
+                    _todayPlan = plans.Single(x => x.Date == DateOnly.FromDateTime(DateTime.Today));
+                    OnPropertyChanged(nameof(TodayPlanLabel)); OnPropertyChanged(nameof(TodayPlanDetail)); OnPropertyChanged(nameof(CanStartPlanned));
+                }
+            }
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception ex) { if (operation == _operationId) ReportFailure(ex, "Dashboard.Load"); }
         finally { if (operation == _operationId) IsLoading = false; }
+    }
+
+    private async Task StartPlannedAsync()
+    {
+        if (!CanStartPlanned || _todayPlan?.MenuId is not Guid menuId || _workout is null) return;
+        if (_workout.IsActive) { PlanStatus = "進行中の記録を先に完了してください。"; return; }
+        try
+        {
+            var result = await _workout.StartAsync(menuId, _todayPlan.Date);
+            if (result is StartWorkoutResult.Started) StartWorkoutRequested?.Invoke(this, EventArgs.Empty);
+            else PlanStatus = "進行中の記録を先に確認してください。";
+        }
+        catch (Exception ex) { _errors.Report(ex, "Dashboard.StartPlanned"); PlanStatus = "予定から記録を開始できませんでした。"; }
     }
 
     private void RaiseDataProperties()

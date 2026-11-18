@@ -20,9 +20,10 @@ public sealed class PersistenceTests
     {
         await using var f = new DatabaseTestFixture(); await f.MigrateAsync();
         await using var db = await f.Factory.CreateDbContextAsync();
-        Assert.Single(await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(2, (await db.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Equal(9L, await ScalarAsync<long>(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('MuscleGroups','Exercises','ExerciseSecondaryMuscles','WorkoutMenus','MenuExercises','WorkoutSessions','WorkoutExercises','WorkoutSets','AppSettings');"));
-        Assert.Equal(1L, await ScalarAsync<long>(db, "PRAGMA user_version;"));
+        Assert.Equal(1L, await ScalarAsync<long>(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='WeeklyScheduleRules';"));
+        Assert.Equal(2L, await ScalarAsync<long>(db, "PRAGMA user_version;"));
     }
 
     [Fact(DisplayName = "DB-001 WeightHundredthsKg persists exactly as INTEGER")]

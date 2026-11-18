@@ -19,6 +19,7 @@ public static class DependencyInjection
         services.AddTransient<GetPreviousPerformanceUseCase>();
         services.AddTransient<FinishWorkoutUseCase>();
         services.AddTransient<DiscardWorkoutUseCase>();
+        services.AddSingleton<ChangeCompletedWorkoutDateUseCase>();
         services.AddSingleton<MasterDataService>();
         services.AddSingleton<HistoryCalendarService>();
         services.AddSingleton<AnalyticsService>();

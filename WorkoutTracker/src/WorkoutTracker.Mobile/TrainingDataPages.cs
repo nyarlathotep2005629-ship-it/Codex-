@@ -166,6 +166,10 @@ internal sealed class MuscleGroupEditorPage : TrainingDataPageBase
 internal sealed class ExerciseListPage : TrainingDataPageBase
 {
     private readonly MobileWorkoutController _workouts;
+    private IReadOnlyList<ExerciseMasterDto> _exercises = [];
+    private VerticalStackLayout? _results;
+    private string _search = string.Empty;
+    private string _primaryMuscle = "すべて";
 
     public ExerciseListPage(MobileWorkoutController workouts)
     {
@@ -184,29 +188,48 @@ internal sealed class ExerciseListPage : TrainingDataPageBase
     {
         try
         {
-            var exercises = await _workouts.GetExercisesAsync();
+            _exercises = await _workouts.GetExercisesAsync();
             var stack = new VerticalStackLayout { Padding = 20, Spacing = 12 };
             stack.Children.Add(Text("種目", 28, bold: true));
-            stack.Children.Add(Action("最初の種目を作成", async (_, _) => await Navigation.PushAsync(new ExerciseEditorPage(_workouts, null)), primary: true));
-            if (exercises.Count == 0) stack.Children.Add(Card(Text("種目がありません。部位を作成してから種目を追加してください。", 14, Secondary)));
-            foreach (var exercise in exercises)
-            {
-                var state = exercise.IsActive ? "使用中" : "非表示";
-                stack.Children.Add(Card(new VerticalStackLayout
-                {
-                    Spacing = 5,
-                    Children =
-                    {
-                        Text(exercise.Name, 18, bold: true),
-                        Text($"メイン部位: {exercise.PrimaryMuscleName} ・ {state}", 13, Secondary),
-                        Text(exercise.SecondaryMuscleNames.Count == 0 ? "補助部位: なし" : $"補助部位: {string.Join("、", exercise.SecondaryMuscleNames)}", 13, Secondary),
-                        Action("編集", async (_, _) => await Navigation.PushAsync(new ExerciseEditorPage(_workouts, exercise)))
-                    }
-                }));
-            }
+            stack.Children.Add(Action("種目を追加", async (_, _) => await Navigation.PushAsync(new ExerciseEditorPage(_workouts, null)), primary: true));
+            var search = Field("種目名で検索", _search);
+            search.TextChanged += (_, _) => { _search = search.Text ?? string.Empty; RenderResults(); };
+            stack.Children.Add(search);
+            var muscleNames = new[] { "すべて" }.Concat(_exercises.Select(x => x.PrimaryMuscleName).Distinct().OrderBy(x => x)).ToArray();
+            var filter = new Picker { Title = "主部位", ItemsSource = muscleNames, TextColor = Primary, BackgroundColor = Color.FromArgb("#303030"), MinimumHeightRequest = 48 };
+            filter.SelectedIndex = Math.Max(0, Array.IndexOf(muscleNames, _primaryMuscle));
+            filter.SelectedIndexChanged += (_, _) => { _primaryMuscle = filter.SelectedIndex >= 0 ? muscleNames[filter.SelectedIndex] : "すべて"; RenderResults(); };
+            stack.Children.Add(filter);
+            _results = new VerticalStackLayout { Spacing = 12 };
+            stack.Children.Add(_results);
             Content = new ScrollView { Content = stack };
+            RenderResults();
         }
         catch { Content = new VerticalStackLayout { Padding = 20, Children = { Text("種目を読み込めませんでした。", 16, Color.FromArgb("#EF9A9A")) } }; }
+    }
+
+    private void RenderResults()
+    {
+        if (_results is null) return;
+        _results.Children.Clear();
+        var matches = _exercises.Where(x => (_primaryMuscle == "すべて" || x.PrimaryMuscleName == _primaryMuscle) &&
+            (string.IsNullOrWhiteSpace(_search) || x.Name.Contains(_search.Trim(), StringComparison.CurrentCultureIgnoreCase))).ToArray();
+        _results.Children.Add(Text($"{matches.Length} 件", 13, Secondary));
+        if (matches.Length == 0) _results.Children.Add(Card(Text("条件に一致する種目がありません。", 14, Secondary)));
+        foreach (var exercise in matches)
+        {
+            var state = exercise.IsActive ? "使用中" : "非表示";
+            _results.Children.Add(Card(new VerticalStackLayout
+            {
+                Spacing = 5,
+                Children =
+                {
+                    Text(exercise.Name, 18, bold: true),
+                    Text($"メイン部位: {exercise.PrimaryMuscleName} ・ {state}", 13, Secondary),
+                    Action("編集", async (_, _) => await Navigation.PushAsync(new ExerciseEditorPage(_workouts, exercise)))
+                }
+            }));
+        }
     }
 }
 
@@ -371,6 +394,9 @@ internal sealed class MenuEditorPage : TrainingDataPageBase
     private Entry? _name;
     private Editor? _description;
     private Picker? _exercisePicker;
+    private IReadOnlyList<ExerciseMasterDto> _candidateExercises = [];
+    private string _exerciseSearchText = string.Empty;
+    private string _selectedMuscleName = "すべて";
     private Label? _error;
     private string? _draftName;
     private string? _draftDescription;
@@ -415,7 +441,7 @@ internal sealed class MenuEditorPage : TrainingDataPageBase
         _name = Field("メニュー名", _draftName);
         _description = new Editor { Placeholder = "説明（任意）", Text = _draftDescription, TextColor = Primary, PlaceholderColor = Secondary, BackgroundColor = Color.FromArgb("#303030"), MinimumHeightRequest = 88 };
         var candidates = _exercises.Where(x => x.IsActive && _rows.All(row => row.Exercise.Id != x.Id)).ToArray();
-        _exercisePicker = new Picker { Title = "追加する種目を選択", ItemsSource = candidates.Select(x => $"{x.Name}（{x.PrimaryMuscleName}）").ToArray(), TextColor = Primary, TitleColor = Secondary, BackgroundColor = Color.FromArgb("#303030"), MinimumHeightRequest = 48 };
+        _exercisePicker = new Picker { Title = "追加する種目を選択", TextColor = Primary, TitleColor = Secondary, BackgroundColor = Color.FromArgb("#303030"), MinimumHeightRequest = 48 };
         _error = ErrorLabel();
         var stack = new VerticalStackLayout { Padding = 20, Spacing = 12 };
         stack.Children.Add(Text(Title, 28, bold: true));
@@ -424,7 +450,20 @@ internal sealed class MenuEditorPage : TrainingDataPageBase
         stack.Children.Add(Text("種目を追加", 18, bold: true));
         if (_exercises.Count == 0) stack.Children.Add(Card(Text("種目がありません。先に種目を作成してください。", 14, Secondary)));
         else if (candidates.Length == 0) stack.Children.Add(Text("追加できる使用中の種目はありません。", 14, Secondary));
-        else { stack.Children.Add(_exercisePicker); stack.Children.Add(Action("種目を追加", (_, _) => AddExercise(candidates))); }
+        else
+        {
+            var search = Field("種目名で検索", _exerciseSearchText);
+            search.TextChanged += (_, _) => { _exerciseSearchText = search.Text ?? string.Empty; RefreshCandidatePicker(candidates); };
+            stack.Children.Add(search);
+            var muscleNames = new[] { "すべて" }.Concat(candidates.Select(x => x.PrimaryMuscleName).Distinct().OrderBy(x => x)).ToArray();
+            var musclePicker = new Picker { Title = "主部位", ItemsSource = muscleNames, TextColor = Primary, BackgroundColor = Color.FromArgb("#303030"), MinimumHeightRequest = 48 };
+            musclePicker.SelectedIndex = Math.Max(0, Array.IndexOf(muscleNames, _selectedMuscleName));
+            musclePicker.SelectedIndexChanged += (_, _) => { _selectedMuscleName = musclePicker.SelectedIndex >= 0 ? muscleNames[musclePicker.SelectedIndex] : "すべて"; RefreshCandidatePicker(candidates); };
+            stack.Children.Add(musclePicker);
+            stack.Children.Add(_exercisePicker);
+            stack.Children.Add(Action("種目を追加", (_, _) => AddExercise()));
+            RefreshCandidatePicker(candidates);
+        }
         stack.Children.Add(Text("メニュー内の種目", 18, bold: true));
         if (_rows.Count == 0) stack.Children.Add(Card(Text("種目を追加してください。", 14, Secondary)));
         for (var index = 0; index < _rows.Count; index++) stack.Children.Add(BuildRow(_rows[index], index));
@@ -451,10 +490,21 @@ internal sealed class MenuEditorPage : TrainingDataPageBase
         return Card(stack);
     }
 
-    private void AddExercise(IReadOnlyList<ExerciseMasterDto> candidates)
+    private void RefreshCandidatePicker(IReadOnlyList<ExerciseMasterDto> candidates)
     {
-        if (_exercisePicker?.SelectedIndex is not int index || index < 0 || index >= candidates.Count) { _error!.Text = "追加する種目を選択してください。"; return; }
-        var exercise = candidates[index];
+        _candidateExercises = candidates.Where(x => (_selectedMuscleName == "すべて" || x.PrimaryMuscleName == _selectedMuscleName) &&
+            (string.IsNullOrWhiteSpace(_exerciseSearchText) || x.Name.Contains(_exerciseSearchText.Trim(), StringComparison.CurrentCultureIgnoreCase))).ToArray();
+        if (_exercisePicker is not null)
+        {
+            _exercisePicker.ItemsSource = _candidateExercises.Select(x => $"{x.Name}（{x.PrimaryMuscleName}）").ToArray();
+            _exercisePicker.SelectedIndex = _candidateExercises.Count > 0 ? 0 : -1;
+        }
+    }
+
+    private void AddExercise()
+    {
+        if (_exercisePicker?.SelectedIndex is not int index || index < 0 || index >= _candidateExercises.Count) { _error!.Text = "追加する種目を選択してください。"; return; }
+        var exercise = _candidateExercises[index];
         if (_rows.Any(x => x.Exercise.Id == exercise.Id)) { _error!.Text = "同じ種目を複数追加できません。"; return; }
         _rows.Add(new DraftRow(null, exercise, 3, null));
         Render();

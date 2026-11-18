@@ -315,12 +315,12 @@ internal sealed class StartupMigrationCoordinator(
     private async Task ValidateCurrentDatabaseAsync(CancellationToken cancellationToken)
     {
         var current = await ReadSchemaStateAsync(location.DatabasePath, cancellationToken);
-        if (current.Version != RestoreInfrastructure.CurrentSchemaVersion || current.History.Length != 1 || current.History[0] != RestoreInfrastructure.CurrentMigrationId)
+        if (current.Version != RestoreInfrastructure.CurrentSchemaVersion || !current.History.SequenceEqual(RestoreInfrastructure.CurrentMigrationIds))
             throw new InvalidOperationException("Schema version and EF Migration history do not match the current application.");
         await ValidateSchemaStateAsync(location.DatabasePath, current.Version, current.History, cancellationToken);
         await using var connection = CreateConnection(location.DatabasePath, SqliteOpenMode.ReadOnly);
         await connection.OpenAsync(cancellationToken);
-        foreach (var table in new[] { "AppSettings", "MuscleGroups", "Exercises", "WorkoutMenus", "WorkoutSessions", "WorkoutExercises", "WorkoutSets" })
+        foreach (var table in new[] { "AppSettings", "MuscleGroups", "Exercises", "WorkoutMenus", "WorkoutSessions", "WorkoutExercises", "WorkoutSets", "WeeklyScheduleRules" })
         {
             await using var command = connection.CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=$name;"; command.Parameters.AddWithValue("$name", table);
             if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) != 1) throw new InvalidOperationException($"Required table is missing: {table}.");

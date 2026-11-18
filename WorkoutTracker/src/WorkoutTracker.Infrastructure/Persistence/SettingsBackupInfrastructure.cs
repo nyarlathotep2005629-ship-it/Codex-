@@ -43,7 +43,7 @@ internal sealed class BackupInfrastructure(
     private static readonly string[] RequiredTables =
     [
         "AppSettings", "MuscleGroups", "Exercises", "ExerciseSecondaryMuscles", "WorkoutMenus",
-        "MenuExercises", "WorkoutSessions", "WorkoutExercises", "WorkoutSets", "__EFMigrationsHistory"
+        "MenuExercises", "WorkoutSessions", "WorkoutExercises", "WorkoutSets", "WeeklyScheduleRules", "__EFMigrationsHistory"
     ];
 
     public async Task WaitForConnectionsAndCheckpointAsync(CancellationToken cancellationToken)
@@ -90,7 +90,7 @@ internal sealed class BackupInfrastructure(
             await EnsureQuickCheckAsync(validation, cancellationToken);
 
             var schemaVersion = await ScalarIntAsync(validation, "PRAGMA user_version;", cancellationToken);
-            if (schemaVersion != 1) throw new InvalidOperationException($"Unsupported schema version: {schemaVersion}.");
+            if (schemaVersion != RestoreInfrastructure.CurrentSchemaVersion) throw new InvalidOperationException($"Unsupported schema version: {schemaVersion}.");
             foreach (var table in RequiredTables)
             {
                 await using var command = validation.CreateCommand();

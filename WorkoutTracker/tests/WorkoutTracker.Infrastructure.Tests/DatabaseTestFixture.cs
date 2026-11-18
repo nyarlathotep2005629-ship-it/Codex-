@@ -30,11 +30,14 @@ internal sealed class DatabaseTestFixture : IAsyncDisposable
         Settings = _provider.GetRequiredService<SettingsService>();
         Backup = _provider.GetRequiredService<BackupService>();
         StartWorkout = _provider.GetRequiredService<StartWorkoutUseCase>();
+        ChangeCompletedWorkoutDate = _provider.GetRequiredService<ChangeCompletedWorkoutDateUseCase>();
         AutoSave = _provider.GetRequiredService<AutoSaveCoordinator>();
         ActiveWorkout = _provider.GetRequiredService<ActiveWorkoutState>();
         Restore = _provider.GetRequiredService<RestoreService>();
         WriteGate = _provider.GetRequiredService<IWriteAdmissionGate>();
         Initializer = _provider.GetRequiredService<IDatabaseInitializer>();
+        CatalogSeeder = _provider.GetRequiredService<IStandardCatalogSeeder>();
+        WeeklySchedule = _provider.GetRequiredService<IWeeklyScheduleService>();
         TableRebuilder = _provider.GetRequiredService<SqliteTableRebuilder>();
         Transfer = _provider.GetRequiredService<ITransferService>();
     }
@@ -50,11 +53,14 @@ internal sealed class DatabaseTestFixture : IAsyncDisposable
     public SettingsService Settings { get; }
     public BackupService Backup { get; }
     public StartWorkoutUseCase StartWorkout { get; }
+    public ChangeCompletedWorkoutDateUseCase ChangeCompletedWorkoutDate { get; }
     public AutoSaveCoordinator AutoSave { get; }
     public ActiveWorkoutState ActiveWorkout { get; }
     public RestoreService Restore { get; }
     public IWriteAdmissionGate WriteGate { get; }
     public IDatabaseInitializer Initializer { get; }
+    public IStandardCatalogSeeder CatalogSeeder { get; }
+    public IWeeklyScheduleService WeeklySchedule { get; }
     public SqliteTableRebuilder TableRebuilder { get; }
     public ITransferService Transfer { get; }
     public async Task MigrateAsync() { await using var db = await Factory.CreateDbContextAsync(); await db.Database.MigrateAsync(); }

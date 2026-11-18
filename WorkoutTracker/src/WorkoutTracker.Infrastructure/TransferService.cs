@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using WorkoutTracker.Application;
 using WorkoutTracker.Domain;
 using WorkoutTracker.Infrastructure.Persistence;
@@ -25,8 +26,9 @@ internal static class TransferJson
 internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext> factory) : ITransferService
 {
     private const string Format = "WorkoutTrackerTransfer";
-    private const int FormatVersion = 1;
-    private const int DatabaseSchemaVersion = 1;
+    private const int FormatVersion = 2;
+    private const int DatabaseSchemaVersion = 2;
+    private static readonly Guid ScheduleConflictId = StandardExerciseCatalog.StableId("transfer", "weekly-schedule");
     private const long MaximumPackageBytes = 100 * 1024 * 1024;
     private const long MaximumEntryBytes = 75 * 1024 * 1024;
 
@@ -49,7 +51,8 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
             muscles.Select(x => new MuscleGroupTransferDto(x.Id, x.Name, x.DisplayOrder, x.CreatedAtUtc, x.UpdatedAtUtc)).ToArray(),
             exercises.Select(x => new ExerciseTransferDto(x.Id, x.Name, x.PrimaryMuscleId, x.Note, x.IsActive, secondaryByExercise.GetValueOrDefault(x.Id, Array.Empty<Guid>()), x.CreatedAtUtc, x.UpdatedAtUtc)).ToArray(),
             menus.Select(x => new WorkoutMenuTransferDto(x.Id, x.Name, x.Description, x.Exercises.OrderBy(y => y.DisplayOrder).ThenBy(y => y.Id).Select(y => new MenuExerciseTransferDto(y.Id, y.WorkoutMenuId, y.ExerciseId, y.DisplayOrder, y.DefaultSetCount, y.Note, y.CreatedAtUtc, y.UpdatedAtUtc)).ToArray(), x.CreatedAtUtc, x.UpdatedAtUtc)).ToArray(),
-            sessions.Select(x => new WorkoutSessionTransferDto(x.Id, x.SourceMenuId, x.Name, x.WorkoutDate, x.Status.ToString(), x.Note, x.CompletedAtUtc, x.Exercises.OrderBy(y => y.DisplayOrder).ThenBy(y => y.Id).Select(y => new WorkoutExerciseTransferDto(y.Id, y.WorkoutSessionId, y.ExerciseId, y.ExerciseNameSnapshot, y.PrimaryMuscleIdSnapshot, y.PrimaryMuscleNameSnapshot, y.DisplayOrder, y.Note, y.Sets.OrderBy(z => z.SetNumber).ThenBy(z => z.Id).Select(z => new WorkoutSetTransferDto(z.Id, z.SetNumber, z.WeightKg, z.Reps, z.Rpe, z.CreatedAtUtc, z.UpdatedAtUtc)).ToArray(), y.CreatedAtUtc, y.UpdatedAtUtc)).ToArray(), x.CreatedAtUtc, x.UpdatedAtUtc)).ToArray());
+            sessions.Select(x => new WorkoutSessionTransferDto(x.Id, x.SourceMenuId, x.Name, x.WorkoutDate, x.Status.ToString(), x.Note, x.CompletedAtUtc, x.Exercises.OrderBy(y => y.DisplayOrder).ThenBy(y => y.Id).Select(y => new WorkoutExerciseTransferDto(y.Id, y.WorkoutSessionId, y.ExerciseId, y.ExerciseNameSnapshot, y.PrimaryMuscleIdSnapshot, y.PrimaryMuscleNameSnapshot, y.DisplayOrder, y.Note, y.Sets.OrderBy(z => z.SetNumber).ThenBy(z => z.Id).Select(z => new WorkoutSetTransferDto(z.Id, z.SetNumber, z.WeightKg, z.Reps, z.Rpe, z.CreatedAtUtc, z.UpdatedAtUtc)).ToArray(), y.CreatedAtUtc, y.UpdatedAtUtc)).ToArray(), x.CreatedAtUtc, x.UpdatedAtUtc)).ToArray(),
+            await ReadScheduleRulesAsync(db, cancellationToken));
 
         ValidateData(data);
         var counts = Count(data);
@@ -91,6 +94,45 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
         foreach (var item in package.Data.WorkoutSessions)
             Classify(item.Id, item.Name ?? item.Id.ToString(), localSessions.ContainsKey(item.Id), localSessions.TryGetValue(item.Id, out var localSession) && SameSession(localSession!, item), TransferAggregateKind.WorkoutSession, added, unchanged, conflicts);
 
+        foreach (var item in package.Data.MuscleGroups)
+        {
+            if (localMuscles.TryGetValue(item.Id, out var byId) && !string.Equals(byId.Name, item.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                conflicts.RemoveAll(x => x.Kind == TransferAggregateKind.MuscleGroup && x.Id == item.Id);
+                conflicts.Add(new(TransferAggregateKind.MuscleGroup, item.Id, item.Name, $"同じIDが異なる部位を指します（既存: {byId.Name}）。自動対応できません。"));
+            }
+            var other = localMuscles.Values.FirstOrDefault(x => x.Id != item.Id && string.Equals(x.Name, item.Name, StringComparison.OrdinalIgnoreCase));
+            if (other is not null)
+            {
+                added.RemoveAll(x => x.Kind == TransferAggregateKind.MuscleGroup && x.Id == item.Id);
+                conflicts.Add(new(TransferAggregateKind.MuscleGroup, item.Id, item.Name, $"同名の部位に異なるIDがあります（既存: {other.Id}）。自動対応できません。"));
+            }
+        }
+        foreach (var item in package.Data.Exercises)
+        {
+            var canonical = StandardExerciseCatalog.CanonicalName(item.Name);
+            if (localExercises.TryGetValue(item.Id, out var byId) && !string.Equals(StandardExerciseCatalog.CanonicalName(byId.Name), canonical, StringComparison.OrdinalIgnoreCase))
+            {
+                conflicts.RemoveAll(x => x.Kind == TransferAggregateKind.Exercise && x.Id == item.Id);
+                conflicts.Add(new(TransferAggregateKind.Exercise, item.Id, item.Name, $"同じIDが異なる種目を指します（既存: {byId.Name}）。自動対応できません。"));
+            }
+            var other = localExercises.Values.FirstOrDefault(x => x.Id != item.Id && string.Equals(StandardExerciseCatalog.CanonicalName(x.Name), canonical, StringComparison.OrdinalIgnoreCase));
+            if (other is not null)
+            {
+                added.RemoveAll(x => x.Kind == TransferAggregateKind.Exercise && x.Id == item.Id);
+                conflicts.Add(new(TransferAggregateKind.Exercise, item.Id, item.Name, $"同じ種目名または明示別名に異なるIDがあります（既存: {other.Id}）。自動対応できません。"));
+            }
+        }
+
+        var incomingRules = package.Data.ScheduleRules ?? [];
+        var localRules = await ReadScheduleRulesAsync(db, cancellationToken);
+        if (incomingRules.Count > 0)
+        {
+            if (localRules.Count == 0) added.Add(new(TransferAggregateKind.WeeklySchedule, ScheduleConflictId, "週間予定"));
+            else if (SameRules(incomingRules, localRules)) unchanged.Add(new(TransferAggregateKind.WeeklySchedule, ScheduleConflictId, "週間予定"));
+            else conflicts.Add(new(TransferAggregateKind.WeeklySchedule, ScheduleConflictId, "週間予定", "ローカルの週間予定と転送元の予定が異なります。"));
+        }
+
         return new ImportPlan(package, added, unchanged, conflicts, []);
     }
 
@@ -101,6 +143,7 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
         if (!expected.SetEquals(supplied)) throw new InvalidOperationException("All conflicts must have exactly one resolution before import.");
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await ValidateMasterIdentitiesAsync(db, plan.Package.Data, cancellationToken);
         var resolutionMap = resolutions.ToDictionary(x => (x.Kind, x.Id), x => x.UseImport);
         var added = 0; var updated = 0; var unchanged = plan.UnchangedItems.Count;
 
@@ -145,6 +188,15 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        var incomingRules = plan.Package.Data.ScheduleRules ?? [];
+        var localRules = await ReadScheduleRulesAsync(db, cancellationToken);
+        if (incomingRules.Count > 0 && (localRules.Count == 0 || resolutionMap.GetValueOrDefault((TransferAggregateKind.WeeklySchedule, ScheduleConflictId), false)))
+        {
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM WeeklyScheduleRules;", cancellationToken);
+            foreach (var rule in incomingRules)
+                await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO WeeklyScheduleRules (Kind, AnchorDayNumber, Weekday, MenuId, IsRest) VALUES ({rule.Kind}, {rule.AnchorDayNumber}, {rule.Weekday}, {rule.MenuId}, {(rule.IsRest ? 1 : 0)});", cancellationToken);
+            if (localRules.Count == 0) added++; else updated++;
+        }
         var sessions = await db.WorkoutSessions.Include(x => x.Exercises).ThenInclude(x => x.Sets).ToDictionaryAsync(x => x.Id, cancellationToken);
         foreach (var dto in plan.Package.Data.WorkoutSessions)
         {
@@ -201,9 +253,9 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
         {
             throw new TransferValidationException($"Transfer JSON is invalid: {ex.Message}");
         }
-        if (manifest.Format != Format || manifest.FormatVersion != FormatVersion || manifest.ExportType != "full" || manifest.PackageId == Guid.Empty) throw new TransferValidationException("Unsupported transfer manifest.");
+        if (manifest.Format != Format || manifest.FormatVersion is not (1 or FormatVersion) || manifest.ExportType != "full" || manifest.PackageId == Guid.Empty) throw new TransferValidationException("Unsupported transfer manifest.");
         if (manifest.SourcePlatform is not ("Windows" or "Android")) throw new TransferValidationException("Unsupported source platform.");
-        if (manifest.CreatedUtc.Offset != TimeSpan.Zero || manifest.DatabaseSchemaVersion != DatabaseSchemaVersion) throw new TransferValidationException("Unsupported transfer metadata.");
+        if (manifest.CreatedUtc.Offset != TimeSpan.Zero || manifest.DatabaseSchemaVersion != manifest.FormatVersion) throw new TransferValidationException("Unsupported transfer metadata.");
         if (!string.Equals(manifest.PayloadSha256, Convert.ToHexString(SHA256.HashData(dataBytes)), StringComparison.OrdinalIgnoreCase)) throw new TransferValidationException("Transfer payload SHA-256 does not match.");
         ValidateData(data);
         if (manifest.Counts != Count(data)) throw new TransferValidationException("Transfer manifest counts do not match data.json.");
@@ -222,7 +274,13 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
     {
         var muscles = Unique(data.MuscleGroups.Select(x => x.Id), "MuscleGroup");
         var exercises = Unique(data.Exercises.Select(x => x.Id), "Exercise");
+        if (data.Exercises.Select(x => StandardExerciseCatalog.CanonicalName(x.Name)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != data.Exercises.Count)
+            throw new TransferValidationException("Transfer package contains multiple IDs for one exercise name or explicit alias.");
         var menus = Unique(data.WorkoutMenus.Select(x => x.Id), "WorkoutMenu");
+        var scheduleRules = data.ScheduleRules ?? [];
+        if (scheduleRules.Select(x => (x.Kind, x.AnchorDayNumber, x.Weekday)).Distinct().Count() != scheduleRules.Count ||
+            scheduleRules.Any(x => x.Kind is < 0 or > 2 || x.AnchorDayNumber < 0 || x.Weekday is < 0 or > 6 || (x.Kind == 0 && x.AnchorDayNumber != 0) || (x.MenuId is null && !x.IsRest) || (x.MenuId is not null && (x.IsRest || !menus.Contains(x.MenuId.Value)))))
+            throw new TransferValidationException("Weekly schedule rules are invalid.");
         var sessions = Unique(data.WorkoutSessions.Select(x => x.Id), "WorkoutSession");
         foreach (var x in data.MuscleGroups)
         {
@@ -307,7 +365,47 @@ internal sealed class TransferService(IDbContextFactory<WorkoutTrackerDbContext>
         return array.ToHashSet();
     }
 
-    private static TransferCounts Count(TransferDataV1 data) => new(data.MuscleGroups.Count, data.Exercises.Count, data.Exercises.Sum(x => x.SecondaryMuscleIds.Count), data.WorkoutMenus.Count, data.WorkoutMenus.Sum(x => x.Exercises.Count), data.WorkoutSessions.Count, data.WorkoutSessions.Sum(x => x.Exercises.Count), data.WorkoutSessions.Sum(x => x.Exercises.Sum(y => y.Sets.Count)));
+    private static async Task<IReadOnlyList<ScheduleRuleTransferDto>> ReadScheduleRulesAsync(WorkoutTrackerDbContext db, CancellationToken cancellationToken)
+    {
+        var openedHere = db.Database.GetDbConnection().State != System.Data.ConnectionState.Open;
+        if (openedHere) await db.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+            command.CommandText = "SELECT Kind, AnchorDayNumber, Weekday, MenuId, IsRest FROM WeeklyScheduleRules ORDER BY Kind, AnchorDayNumber, Weekday;";
+            var rules = new List<ScheduleRuleTransferDto>();
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+                rules.Add(new(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.IsDBNull(3) ? null : Guid.Parse(reader.GetString(3)), reader.GetInt32(4) != 0));
+            return rules;
+        }
+        finally { if (openedHere) await db.Database.CloseConnectionAsync(); }
+    }
+
+    private static bool SameRules(IReadOnlyList<ScheduleRuleTransferDto> left, IReadOnlyList<ScheduleRuleTransferDto> right) =>
+        left.OrderBy(x => (x.Kind, x.AnchorDayNumber, x.Weekday)).SequenceEqual(right.OrderBy(x => (x.Kind, x.AnchorDayNumber, x.Weekday)));
+
+    private static async Task ValidateMasterIdentitiesAsync(WorkoutTrackerDbContext db, TransferDataV1 data, CancellationToken cancellationToken)
+    {
+        var localMuscles = await db.MuscleGroups.AsNoTracking().ToListAsync(cancellationToken);
+        var localExercises = await db.Exercises.AsNoTracking().ToListAsync(cancellationToken);
+        foreach (var item in data.MuscleGroups)
+        {
+            if (localMuscles.Any(x => x.Id == item.Id && !string.Equals(x.Name, item.Name, StringComparison.OrdinalIgnoreCase)) ||
+                localMuscles.Any(x => x.Id != item.Id && string.Equals(x.Name, item.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new TransferValidationException($"部位 {item.Name} のIDと名称が既存データと衝突しています。元データを保持し、手動で確認してください。");
+        }
+        foreach (var item in data.Exercises)
+        {
+            var canonical = StandardExerciseCatalog.CanonicalName(item.Name);
+            if (localExercises.Any(x => x.Id == item.Id && !string.Equals(StandardExerciseCatalog.CanonicalName(x.Name), canonical, StringComparison.OrdinalIgnoreCase)) ||
+                localExercises.Any(x => x.Id != item.Id && string.Equals(StandardExerciseCatalog.CanonicalName(x.Name), canonical, StringComparison.OrdinalIgnoreCase)))
+                throw new TransferValidationException($"種目 {item.Name} のIDと名称が既存データと衝突しています。元データを保持し、手動で確認してください。");
+        }
+    }
+
+    private static TransferCounts Count(TransferDataV1 data) => new(data.MuscleGroups.Count, data.Exercises.Count, data.Exercises.Sum(x => x.SecondaryMuscleIds.Count), data.WorkoutMenus.Count, data.WorkoutMenus.Sum(x => x.Exercises.Count), data.WorkoutSessions.Count, data.WorkoutSessions.Sum(x => x.Exercises.Count), data.WorkoutSessions.Sum(x => x.Exercises.Sum(y => y.Sets.Count)), data.ScheduleRules?.Count ?? 0);
 
     private static void Classify(Guid id, string label, bool exists, bool same, TransferAggregateKind kind, ICollection<TransferAggregateReference> added, ICollection<TransferAggregateReference> unchanged, ICollection<TransferConflict> conflicts)
     {

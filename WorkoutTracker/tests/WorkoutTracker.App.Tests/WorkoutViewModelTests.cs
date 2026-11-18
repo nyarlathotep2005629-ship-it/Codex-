@@ -102,6 +102,92 @@ public sealed class WorkoutViewModelTests
         Assert.False(await h.ViewModel.DiscardAsync(false)); Assert.Equal(session, h.ViewModel.SessionId); Assert.Equal(0, h.Persistence.DiscardCount);
     }
 
+    [Fact(DisplayName = "Retry save failure remains a normal UI error and retains the latest revision for recovery")]
+    public async Task RetrySaveFailureDoesNotReachDispatcherAndCanRecover()
+    {
+        var h = new VmHarness();
+        h.Persistence.FailuresRemaining = 2;
+        await h.ViewModel.InitializeAsync();
+
+        var set = h.ViewModel.Exercises.Single().Sets.Single();
+        set.WeightKg = 127.5m;
+        set.Reps = 5;
+        set.Rpe = 8.5m;
+        h.ViewModel.WorkoutDate = new DateOnly(2026, 8, 23);
+        await WaitUntilAsync(() => h.Persistence.SaveCount == 1 && h.ViewModel.SaveState == WorkoutSaveState.Failed);
+
+        var failedRevision = h.ViewModel.EditRevision;
+        Assert.True(failedRevision > h.ViewModel.LastSavedRevision);
+        Assert.Equal(127.5m, set.WeightKg);
+        Assert.Equal(5, set.Reps);
+        Assert.Equal(8.5m, set.Rpe);
+        Assert.Equal(new DateOnly(2026, 8, 23), h.ViewModel.WorkoutDate);
+        Assert.Equal(127.5m, h.State.CurrentWorkout!.Exercises.Single().Sets.Single().WeightKg);
+
+        var retryExceptions = await ExecuteRetryOnWpfDispatcherAsync(h.ViewModel);
+
+        Assert.Empty(retryExceptions);
+        Assert.Equal(2, h.Persistence.SaveCount);
+        Assert.Equal(WorkoutSaveState.Failed, h.ViewModel.SaveState);
+        Assert.True(h.ViewModel.HasUnsavedChanges);
+        Assert.Equal(failedRevision, h.ViewModel.EditRevision);
+        Assert.True(h.ViewModel.LastSavedRevision < failedRevision);
+        Assert.Contains("再試行", h.ViewModel.LastOperationError);
+
+        h.Persistence.FailuresRemaining = 0;
+        retryExceptions = await ExecuteRetryOnWpfDispatcherAsync(h.ViewModel);
+
+        Assert.Empty(retryExceptions);
+        Assert.Equal(3, h.Persistence.SaveCount);
+        Assert.Equal(WorkoutSaveState.Saved, h.ViewModel.SaveState);
+        Assert.Equal(failedRevision, h.ViewModel.LastSavedRevision);
+        Assert.False(h.ViewModel.HasUnsavedChanges);
+        Assert.Equal(new DateOnly(2026, 8, 23), h.Persistence.LastSavedRequest!.WorkoutDate);
+        Assert.Equal(127.5m, h.Persistence.LastSavedRequest.Exercises.Single().Sets.Single().WeightKg);
+        Assert.Equal(5, h.Persistence.LastSavedRequest.Exercises.Single().Sets.Single().Reps);
+        Assert.Equal(8.5m, h.Persistence.LastSavedRequest.Exercises.Single().Sets.Single().Rpe);
+    }
+
+    private static async Task<IReadOnlyList<Exception>> ExecuteRetryOnWpfDispatcherAsync(ActiveWorkoutViewModel viewModel)
+    {
+        var dispatcherExceptions = new List<Exception>();
+        await WpfTestApplication.RunAsync(async application =>
+        {
+            var command = Assert.IsType<AsyncRelayCommand>(viewModel.RetrySaveCommand);
+            var commandFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherUnhandledExceptionEventHandler exceptionHandler = (_, e) =>
+            {
+                dispatcherExceptions.Add(e.Exception);
+                e.Handled = true;
+            };
+            EventHandler commandStateHandler = (_, _) =>
+            {
+                if (command.CanExecute(null))
+                    application.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => commandFinished.TrySetResult(true)));
+            };
+
+            application.DispatcherUnhandledException += exceptionHandler;
+            command.CanExecuteChanged += commandStateHandler;
+            try
+            {
+                command.Execute(null);
+                await commandFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                command.CanExecuteChanged -= commandStateHandler;
+                application.DispatcherUnhandledException -= exceptionHandler;
+            }
+        });
+        return dispatcherExceptions;
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!condition()) await Task.Delay(10, timeout.Token);
+    }
+
     [Fact(DisplayName = "VAL-010 Active Exercise keeps Set count within 1 through 100")]
     public async Task Val010()
     {
@@ -120,6 +206,23 @@ public sealed class WorkoutViewModelTests
         h.ViewModel.WorkoutNote = new string('x', 4001); Assert.Contains("4000", h.ViewModel.LastOperationError);
         h.ViewModel.WorkoutDate = new DateOnly(1899, 12, 31); Assert.Contains("1900", h.ViewModel.LastOperationError);
         Assert.Equal(0, h.Persistence.SaveCount);
+    }
+
+    [Fact(DisplayName = "Workout exercise picker filters by name and primary muscle")]
+    public void ExercisePickerFiltersCatalog()
+    {
+        var vm = new VmHarness().ViewModel;
+        var chest = new ExerciseOption(Guid.NewGuid(), "ベンチプレス", Guid.NewGuid(), "胸");
+        var back = new ExerciseOption(Guid.NewGuid(), "デッドリフト", Guid.NewGuid(), "背中");
+        vm.AvailableExercises.Add(chest); vm.AvailableExercises.Add(back);
+        vm.SelectedExercise = chest;
+        vm.SelectedPrimaryMuscle = "背中";
+        Assert.Null(vm.SelectedExercise);
+        Assert.Equal([back], vm.FilteredExerciseOptions);
+        vm.ExerciseSearchText = "ベンチ";
+        Assert.Empty(vm.FilteredExerciseOptions);
+        vm.SelectedPrimaryMuscle = "すべて";
+        Assert.Equal([chest], vm.FilteredExerciseOptions);
     }
 
     private sealed class VmHarness
@@ -177,10 +280,18 @@ public sealed class WorkoutViewModelTests
         public int LoadCount { get; private set; }
         public int DiscardCount { get; private set; }
         public int SaveCount { get; private set; }
+        public int FailuresRemaining { get; set; }
+        public SaveDraftRequest? LastSavedRequest { get; private set; }
         public Task<StartPersistenceResult> StartAsync(StartWorkoutRequest request, DateTimeOffset now, CancellationToken cancellationToken = default) => Task.FromResult(new StartPersistenceResult(false, dto, null));
         public Task<ActiveWorkoutDto?> LoadDraftAsync(CancellationToken cancellationToken = default) { LoadCount++; return Task.FromResult<ActiveWorkoutDto?>(dto); }
         public Task<PreviousPerformanceDto?> GetLatestCompletedPerformanceAsync(Guid exerciseId, CancellationToken cancellationToken = default) => Task.FromResult<PreviousPerformanceDto?>(null);
-        public Task SaveDraftAsync(SaveDraftRequest request, DateTimeOffset now, CancellationToken cancellationToken = default) { SaveCount++; return Task.CompletedTask; }
+        public Task SaveDraftAsync(SaveDraftRequest request, DateTimeOffset now, CancellationToken cancellationToken = default)
+        {
+            SaveCount++;
+            if (FailuresRemaining > 0) { FailuresRemaining--; throw new IOException("Simulated persistence failure."); }
+            LastSavedRequest = request;
+            return Task.CompletedTask;
+        }
         public Task<FinishWorkoutResult> FinishAsync(Guid sessionId, DateTimeOffset now, CancellationToken cancellationToken = default) => Task.FromResult(FinishWorkoutResult.Success());
         public Task DiscardAsync(Guid sessionId, CancellationToken cancellationToken = default) { DiscardCount++; return Task.CompletedTask; }
     }
