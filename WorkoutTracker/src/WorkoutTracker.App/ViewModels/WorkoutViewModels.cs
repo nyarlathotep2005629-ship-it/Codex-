@@ -122,7 +122,7 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
     {
         _load = load; _start = start; _previous = previous; _finish = finish; _discard = discard; _autoSave = autoSave; _state = state; _exercises = exercises; _menus = menus; _executor = executor;
         Exercises = []; AvailableExercises = []; AvailableMenus = [];
-        FinishWorkoutCommand = new AsyncRelayCommand(FinishAsync); RetrySaveCommand = new AsyncRelayCommand(() => _autoSave.RetryAsync());
+        FinishWorkoutCommand = new AsyncRelayCommand(FinishAsync); RetrySaveCommand = new AsyncRelayCommand(RetrySaveAsync);
         AddExerciseCommand = new AsyncRelayCommand(AddSelectedExerciseAsync, () => SelectedExercise is not null);
         _state.Changed += (_, _) => RaiseStateProperties();
     }
@@ -239,6 +239,12 @@ public sealed class ActiveWorkoutViewModel : ObservableObject
             if (!result.Succeeded) LastOperationError = string.Join(Environment.NewLine, result.Errors); else { Exercises.Clear(); RaiseStateProperties(); }
         }
         catch { ReportOperationError("ワークアウトを完了できませんでした。入力は下書きに保持されています。"); }
+    }
+    private async Task RetrySaveAsync()
+    {
+        LastOperationError = null;
+        try { await _autoSave.RetryAsync(); }
+        catch { ReportOperationError("保存を再試行できませんでした。未保存の内容は保持されています。"); }
     }
     private void Load(ActiveWorkoutDto workout)
     {
